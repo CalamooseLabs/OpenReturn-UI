@@ -726,7 +726,7 @@ export default define.page<typeof handler>((ctx) => {
                 style={{
                   padding: "8px 0",
                   fontSize: "13.5px",
-                  lineHeight: 1.5,
+                  lineHeight: "1.5",
                 }}
               >
                 You're not following any organizations yet. Follow orgs from
@@ -770,7 +770,7 @@ export default define.page<typeof handler>((ctx) => {
                           fontSize: "13.5px",
                           fontWeight: 600,
                           color: "#192A54",
-                          lineHeight: 1.35,
+                          lineHeight: "1.35",
                         }}
                       >
                         {titleCase(o.name)}

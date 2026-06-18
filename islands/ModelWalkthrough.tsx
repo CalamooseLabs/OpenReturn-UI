@@ -478,7 +478,7 @@ export default function ModelWalkthrough(props: Props) {
                   fontSize: "13px",
                   fontWeight: 600,
                   color: active ? "#192A54" : "#3a4150",
-                  lineHeight: 1.25,
+                  lineHeight: "1.25",
                 }}
               >
                 {f.name}
@@ -675,7 +675,7 @@ export default function ModelWalkthrough(props: Props) {
                 fontFamily: DISPLAY,
                 fontWeight: 700,
                 fontSize: "34px",
-                lineHeight: 0.85,
+                lineHeight: "0.85",
                 letterSpacing: "-0.02em",
               }}
             >
@@ -737,7 +737,7 @@ export default function ModelWalkthrough(props: Props) {
         <p
           style={{
             fontSize: "12.5px",
-            lineHeight: 1.5,
+            lineHeight: "1.5",
             color: "#5a6172",
             margin: 0,
             textWrap: "pretty",
