@@ -57,6 +57,16 @@ export const handler = define.handlers({
     const ein = ctx.params.ein.replace(/\D/g, "");
     const api = ctx.state.api;
 
+    // These don't depend on the org record or the model version, so fire them in
+    // parallel with full() instead of serializing behind it. (On a 404 they're
+    // simply discarded — allSettled never rejects, so nothing leaks.)
+    const sideP = Promise.allSettled([
+      api.scores.list(ein),
+      api.people.list({ ein }),
+      api.orgs.grants(ein, "made"),
+      api.orgs.grants(ein, "received"),
+    ]);
+
     let org: OrgFull;
     try {
       org = await api.orgs.full(ein);
@@ -97,11 +107,14 @@ export const handler = define.handlers({
       });
     }
 
-    const scoresRes = await api.scores.list(ein).catch((e) => {
-      only(e);
-      return { ein, scores: [] as ScoreRow[] };
-    });
-    const scores = scoresRes.scores ?? [];
+    // The version-independent fan-out we kicked off above.
+    const [scoresR, peopleR, madeR, recvR] = await sideP;
+    for (const r of [scoresR, peopleR, madeR, recvR]) {
+      if (r.status === "rejected") only(r.reason);
+    }
+    const scores = scoresR.status === "fulfilled"
+      ? (scoresR.value.scores ?? [])
+      : [];
     const overallVersion = scores.length
       ? maxVersion(scores.map((s) => s.model_version))!
       : "30";
@@ -110,18 +123,15 @@ export const handler = define.handlers({
       ? Math.max(...org.filings.map((f) => f.year))
       : undefined;
 
-    const [historyR, rankingR, finR, peopleR, madeR, recvR] = await Promise
-      .allSettled([
-        api.scores.history(ein, overallVersion),
-        api.scores.ranking(ein, overallVersion),
-        latestYear !== undefined
-          ? api.financials.facts(ein, latestYear)
-          : Promise.resolve({ facts: [] as FinancialFact[] }),
-        api.people.list({ ein }),
-        api.orgs.grants(ein, "made"),
-        api.orgs.grants(ein, "received"),
-      ]);
-    for (const r of [historyR, rankingR, finR, peopleR, madeR, recvR]) {
+    // These genuinely depend on the model version / latest year resolved above.
+    const [historyR, rankingR, finR] = await Promise.allSettled([
+      api.scores.history(ein, overallVersion),
+      api.scores.ranking(ein, overallVersion),
+      latestYear !== undefined
+        ? api.financials.facts(ein, latestYear)
+        : Promise.resolve({ facts: [] as FinancialFact[] }),
+    ]);
+    for (const r of [historyR, rankingR, finR]) {
       if (r.status === "rejected") only(r.reason);
     }
 

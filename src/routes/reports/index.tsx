@@ -53,11 +53,6 @@ export const handler = define.handlers({
     const sp = ctx.url.searchParams;
     const offset = Math.max(0, parseInt(sp.get("offset") ?? "0") || 0);
 
-    // Model options first — they decide the default selection.
-    const models = await listModelOptions(api, {
-      admin: isAdmin(ctx.state.principal),
-    });
-
     // The org-type toggle scopes the board and drives the default model.
     const type = sp.get("type") === "foundation"
       ? "foundation"
@@ -68,15 +63,38 @@ export const handler = define.handlers({
       : "nonprofit";
 
     const modelParam = sp.get("model");
+
+    // listModelOptions populates the picker; pickOverallModel resolves the
+    // default selection for the active type. Both independently hit
+    // /admin/models, so run them concurrently rather than serially (the leftover
+    // duplicate fetch overlaps instead of adding a round-trip). pickOverallModel
+    // is only consumed (and only run) when no explicit ?model= was given. We
+    // resolve its no-admin/error fallback against `models` once both settle, so
+    // the .catch fan-out matches the original behaviour exactly.
+    const PICK_FAILED = Symbol("pick-failed");
+    const [models, picked] = await Promise.all([
+      listModelOptions(api, { admin: isAdmin(ctx.state.principal) }),
+      modelParam
+        ? Promise.resolve<string | undefined>(undefined)
+        : pickOverallModel(api, type).catch(
+          (e): string | undefined | typeof PICK_FAILED => {
+            bubble401(e);
+            return PICK_FAILED;
+          },
+        ),
+    ]);
+
     let model: string | undefined;
-    if (modelParam) model = modelParam;
-    // No explicit model: pick the overall model for the active type
-    // (foundation → applies_to=foundation; else → super-composite).
-    if (model === undefined) {
-      model = await pickOverallModel(api, type).catch((e) => {
-        bubble401(e);
-        return models.length ? models[models.length - 1].version : undefined;
-      });
+    if (modelParam) {
+      model = modelParam;
+    } else if (picked === PICK_FAILED) {
+      // pickOverallModel failed (non-401): fall back to the highest version
+      // in the picker, mirroring the original .catch behaviour.
+      model = models.length ? models[models.length - 1].version : undefined;
+    } else {
+      // No explicit model: the overall model for the active type
+      // (foundation → applies_to=foundation; else → super-composite).
+      model = picked;
     }
 
     const filters: Filters = {
@@ -312,14 +330,22 @@ export default define.page<typeof handler>((ctx) => {
                         : " · latest year per organization"}
                     </div>
                     <div class="flex gap-2">
+                      {
+                        /* `download` marks these as file downloads (the responses
+                        are Content-Disposition: attachment), so they don't trigger
+                        the global navigation progress bar (which would otherwise
+                        never clear, since a download doesn't unload the page). */
+                      }
                       <a
                         href={exportHref("pdf")}
+                        download
                         class="btn btn-sm btn-primary"
                       >
                         Export PDF
                       </a>
                       <a
                         href={exportHref("csv")}
+                        download
                         class="btn btn-sm btn-secondary"
                       >
                         Export CSV

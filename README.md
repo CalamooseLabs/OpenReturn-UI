@@ -29,6 +29,7 @@ The dev shell also exposes shortcuts: `dev`, `build`, `serve`, `check`.
 | Variable                                    | Default                 | Purpose                                                                   |
 | ------------------------------------------- | ----------------------- | ------------------------------------------------------------------------- |
 | `OPENRETURN_API_URL`                        | `http://localhost:8080` | Base URL of the OpenReturn API (called server-side).                      |
+| `OPENRETURN_API_TIMEOUT_MS`                 | `10000`                 | Per-call timeout for API requests (each page SSR-awaits them, so a hung backend can't stall the render forever). `0` disables. |
 | `COOKIE_SECURE`                             | `false`                 | Set `true` when served over HTTPS so the session cookie carries `Secure`. |
 | `OPENRETURN_UI_PORT` / `OPENRETURN_UI_HOST` | `8000` / `0.0.0.0`      | Bind for the production launcher (`bin/openreturn-ui`).                   |
 
@@ -120,6 +121,9 @@ src/
     types.ts       shared response interfaces
   components/      atomic design — atoms.tsx, molecules.tsx, templates.tsx, organisms/
   islands/         client-side interactive components
+                   (NavProgress = global top progress bar during navigation,
+                    mounted in _app.tsx; SubmitButton = disable+spinner on slow
+                    form submits; ModelWalkthrough; PrintButton)
   routes/          pages + _app/_404/_error
   static/ assets/  static files + the Tailwind stylesheet entry
 ```

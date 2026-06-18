@@ -42,24 +42,33 @@ export const handler = define.handlers({
 
     let tags: TagInfo[] = [];
     let error: string | undefined;
-    try {
-      const res = await api.tags.list();
-      tags = res.tags ?? [];
-    } catch (err) {
+    let taggedEins: string[] = [];
+    let taggedError: string | undefined;
+
+    // The tag list and the selected tag's members share no input, so fetch them
+    // together when a tag is selected (one round-trip phase instead of two).
+    const [tagsR, taggedR] = await Promise.allSettled([
+      api.tags.list(),
+      selectedTag
+        ? api.tags.organizations(selectedTag)
+        : Promise.resolve({ eins: [] as string[] }),
+    ]);
+
+    if (tagsR.status === "fulfilled") {
+      tags = tagsR.value.tags ?? [];
+    } else {
+      const err = tagsR.reason;
       if (err instanceof ApiError && err.status === 401) throw err;
       error = err instanceof Error ? err.message : "Failed to load tags.";
     }
 
-    let taggedEins: string[] = [];
-    let taggedError: string | undefined;
     if (selectedTag) {
-      try {
-        const res = await api.tags.organizations(selectedTag);
-        taggedEins = res.eins ?? [];
-      } catch (err) {
-        only(err);
-        taggedError = err instanceof Error
-          ? err.message
+      if (taggedR.status === "fulfilled") {
+        taggedEins = taggedR.value.eins ?? [];
+      } else {
+        only(taggedR.reason);
+        taggedError = taggedR.reason instanceof Error
+          ? taggedR.reason.message
           : "Failed to load tagged organizations.";
       }
     }

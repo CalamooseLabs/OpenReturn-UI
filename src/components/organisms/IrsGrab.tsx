@@ -3,7 +3,7 @@
 // ingested" ledger. Server-rendered (POST forms, no island): Discover previews
 // the archives at a URL; Start ingest launches a detached background load.
 
-import { Button } from "../atoms.tsx";
+import SubmitButton from "../../islands/SubmitButton.tsx";
 import { Card, ErrorAlert, InfoAlert, Section, Table } from "../molecules.tsx";
 import { dateOnly, number } from "../../lib/format.ts";
 import type {
@@ -101,18 +101,22 @@ export function GrabFromIrs(
             </div>
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-3">
-            <Button type="submit" name="action" value="discover">
+            <SubmitButton
+              variant="secondary"
+              name="action"
+              value="discover"
+              pendingLabel="Discovering…"
+            >
               Discover
-            </Button>
-            <Button
-              type="submit"
+            </SubmitButton>
+            <SubmitButton
               name="action"
               value="grab"
               variant="primary"
               disabled={props.ingestRunning}
             >
               {props.ingestRunning ? "Ingest running…" : "Start ingest"}
-            </Button>
+            </SubmitButton>
             <label class="flex items-center gap-2 text-sm text-muted">
               <input type="checkbox" name="force" value="1" />
               Re-ingest already-grabbed

@@ -96,6 +96,26 @@ export const handler = define.handlers({
     let total = 0;
     let error: string | undefined;
 
+    // The leaderboard overlay is keyed by the SAME filter subset, not by the
+    // rows search returns — so it shares no input with orgs.search and can run
+    // concurrently. Only worth issuing when there's a query (results, hence an
+    // overlay, only appear then) and a model version exists. We still gate the
+    // overlay on results.length below, so an empty search discards the board.
+    const boardP = hasQuery && overallVersion !== undefined
+      ? api.scores.leaderboard({
+        model: overallVersion,
+        sector: filters.sector || undefined,
+        state: filters.state || undefined,
+        city: filters.city || undefined,
+        type: filters.type || undefined,
+        grantmaker: filters.grantmaker ? 1 : undefined,
+        limit: 500,
+      }).catch((e) => {
+        only(e);
+        return undefined;
+      })
+      : Promise.resolve(undefined);
+
     try {
       const res = await api.orgs.search({
         q: filters.q || undefined,
@@ -119,18 +139,7 @@ export const handler = define.handlers({
     // Overlay overall scores in ONE cheap call: the leaderboard for the same
     // filter subset returns total_score per org, which we join onto the page.
     if (results.length && overallVersion !== undefined) {
-      const board = await api.scores.leaderboard({
-        model: overallVersion,
-        sector: filters.sector || undefined,
-        state: filters.state || undefined,
-        city: filters.city || undefined,
-        type: filters.type || undefined,
-        grantmaker: filters.grantmaker ? 1 : undefined,
-        limit: 500,
-      }).catch((e) => {
-        only(e);
-        return undefined;
-      });
+      const board = await boardP;
       if (board?.leaderboard?.length) {
         const byEin = new Map<string, number>();
         for (const row of board.leaderboard) {

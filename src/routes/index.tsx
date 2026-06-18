@@ -54,10 +54,21 @@ export const handler = define.handlers({
     }
 
     const api = ctx.state.api;
-    const results = await Promise.allSettled([
-      api.orgs.list({ limit: 1, type: orgType }),
-      api.templates.list(),
-      api.follows.list(),
+    // The meta fan-out and the overall-model resolution (which itself fetches
+    // /admin/models) share no inputs, so resolve them together instead of
+    // serially — only the leaderboard below truly depends on the version.
+    const [results, overallVersion] = await Promise.all([
+      Promise.allSettled([
+        api.orgs.list({ limit: 1, type: orgType }),
+        api.templates.list(),
+        api.follows.list(),
+      ]),
+      // The "overall" model depends on the active type: the super-composite for
+      // nonprofits (v30), the foundation-stewardship model for foundations (v40).
+      pickOverallModel(api, orgType).catch((e) => {
+        bubble401(e);
+        return orgType === "foundation" ? "40" : "30";
+      }),
     ]);
     for (const r of results) if (r.status === "rejected") bubble401(r.reason);
 
@@ -70,13 +81,6 @@ export const handler = define.handlers({
     const follows = results[2].status === "fulfilled"
       ? results[2].value
       : undefined;
-
-    // The "overall" model depends on the active type: the super-composite for
-    // nonprofits (v30), the foundation-stewardship model for foundations (v40).
-    const overallVersion = await pickOverallModel(api, orgType).catch((e) => {
-      bubble401(e);
-      return orgType === "foundation" ? "40" : "30";
-    });
 
     // Portfolio stats are derived from a slice of the leaderboard for that model,
     // scoped to the active org type.

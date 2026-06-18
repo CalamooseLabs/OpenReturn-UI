@@ -7,6 +7,15 @@
 const RAW_BASE = Deno.env.get("OPENRETURN_API_URL") ?? "http://localhost:8080";
 const API_BASE = RAW_BASE.replace(/\/+$/, "");
 
+// Hard upper bound on a single API call. Every page is server-rendered by
+// awaiting these calls, so without a timeout one hung/slow backend request would
+// hang the whole SSR render (and tie up a BFF connection) indefinitely. Default
+// 10s; set OPENRETURN_API_TIMEOUT_MS=0 to disable.
+const TIMEOUT_MS = (() => {
+  const raw = Number(Deno.env.get("OPENRETURN_API_TIMEOUT_MS") ?? "10000");
+  return Number.isFinite(raw) && raw >= 0 ? raw : 10000;
+})();
+
 export function apiBase(): string {
   return API_BASE;
 }
@@ -82,24 +91,54 @@ export async function request<T = unknown>(
     body = JSON.stringify(opts.body);
   }
 
+  // Combine the (optional) caller signal with a default timeout so a hung
+  // backend can't stall the SSR render forever.
+  const signals: AbortSignal[] = [];
+  if (opts.signal) signals.push(opts.signal);
+  if (TIMEOUT_MS > 0) signals.push(AbortSignal.timeout(TIMEOUT_MS));
+  const signal = signals.length === 0
+    ? undefined
+    : signals.length === 1
+    ? signals[0]
+    : AbortSignal.any(signals);
+
+  // The timeout signal is live for the WHOLE request, including the body read
+  // below — so map abort/connection errors from both fetch() and res.text()
+  // through the same handler. AbortSignal.timeout() aborts with a TimeoutError;
+  // surface that distinctly from a connection failure.
+  const asApiError = (err: unknown): ApiError => {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      return new ApiError(
+        0,
+        `OpenReturn API request timed out after ${TIMEOUT_MS}ms (${path})`,
+      );
+    }
+    return new ApiError(
+      0,
+      `Cannot reach the OpenReturn API at ${API_BASE} (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    );
+  };
+
   let res: Response;
   try {
     res = await fetch(buildUrl(path, opts.query), {
       method: opts.method ?? "GET",
       headers,
       body,
-      signal: opts.signal,
+      signal,
     });
   } catch (err) {
-    throw new ApiError(
-      0,
-      `Cannot reach the OpenReturn API at ${API_BASE} (${
-        err instanceof Error ? err.message : String(err)
-      })`,
-    );
+    throw asApiError(err);
   }
 
-  const text = await res.text();
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    throw asApiError(err);
+  }
   let data: unknown = text;
   const ct = res.headers.get("content-type") ?? "";
   if (text && ct.includes("application/json")) {

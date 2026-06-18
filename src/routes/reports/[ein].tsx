@@ -69,6 +69,18 @@ export const handler = define.handlers({
     const ein = ctx.params.ein.replace(/\D/g, "");
     const api = ctx.state.api;
 
+    // None of these depend on the org record or the model version, so fire them
+    // in parallel with full() instead of serializing behind it. On a 404 they're
+    // simply discarded (allSettled never rejects, so nothing leaks).
+    //   - scores.list   → derives overallVersion
+    //   - admin.listModels → version→type map for the pillar rows (may 403)
+    //   - orgs.list(rail)  → the report-library rail
+    const sideP = Promise.allSettled([
+      api.scores.list(ein),
+      api.admin.listModels(),
+      api.orgs.list({ limit: 50 }),
+    ]);
+
     let org: OrgFull;
     try {
       org = await api.orgs.full(ein);
@@ -87,11 +99,17 @@ export const handler = define.handlers({
       return page<Data>(emptyData(ein, { notFound: true }));
     }
 
-    const scoresRes = await api.scores.list(ein).catch((e) => {
-      bubble401(e);
-      return { ein, scores: [] as ScoreRow[] };
-    });
-    const scores = scoresRes.scores ?? [];
+    // The version-independent fan-out we kicked off above.
+    const [scoresR, modelsR, railR] = await sideP;
+    for (const r of [scoresR, railR]) {
+      if (r.status === "rejected") bubble401(r.reason);
+    }
+    // listModels requires user:admin; tolerated (rows fall back to "Pending").
+    if (modelsR.status === "rejected") bubble401(modelsR.reason);
+
+    const scores = scoresR.status === "fulfilled"
+      ? (scoresR.value.scores ?? [])
+      : [];
     const overallVersion = scores.length
       ? maxVersion(scores.map((s) => s.model_version))!
       : "30";
@@ -100,20 +118,16 @@ export const handler = define.handlers({
       ? Math.max(...org.filings.map((f) => f.year))
       : undefined;
 
-    const [historyR, finR, modelsR, railR] = await Promise.allSettled([
+    // These genuinely depend on the model version / latest year resolved above.
+    const [historyR, finR] = await Promise.allSettled([
       api.scores.history(ein, overallVersion),
       latestYear !== undefined
         ? api.financials.facts(ein, latestYear)
         : Promise.resolve({ facts: [] as FinancialFact[] }),
-      // Maps model version -> model_type for the pillar rows. Requires
-      // user:admin; tolerated (rows fall back to "Pending").
-      api.admin.listModels(),
-      api.orgs.list({ limit: 50 }),
     ]);
-    for (const r of [historyR, finR, railR]) {
+    for (const r of [historyR, finR]) {
       if (r.status === "rejected") bubble401(r.reason);
     }
-    if (modelsR.status === "rejected") bubble401(modelsR.reason);
 
     return page<Data>({
       ein,

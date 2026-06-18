@@ -3,7 +3,8 @@ import { page } from "fresh";
 import { ApiError, softError } from "../lib/api/mod.ts";
 import type { Api } from "../lib/api/mod.ts";
 import { Layout } from "../components/templates.tsx";
-import { Button, LinkButton } from "../components/atoms.tsx";
+import { LinkButton } from "../components/atoms.tsx";
+import SubmitButton from "../islands/SubmitButton.tsx";
 import {
   Card,
   ErrorAlert,
@@ -312,9 +313,9 @@ export default define.page<typeof handler>((ctx) => {
               />
             </div>
             <div class="mt-4">
-              <Button type="submit" variant="primary">
+              <SubmitButton variant="primary" pendingLabel="Uploading…">
                 Upload ZIP
-              </Button>
+              </SubmitButton>
             </div>
           </form>
         </Card>
@@ -357,9 +358,9 @@ export default define.page<typeof handler>((ctx) => {
               />
             </div>
             <div class="mt-4">
-              <Button type="submit" variant="primary">
+              <SubmitButton variant="primary" pendingLabel="Processing…">
                 Upload &amp; OCR
-              </Button>
+              </SubmitButton>
             </div>
           </form>
         </Card>

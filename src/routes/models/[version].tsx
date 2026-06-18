@@ -62,6 +62,14 @@ export const handler = define.handlers({
     }
     const version = raw;
 
+    // Header metadata (model name / kind / description from the admin registry
+    // or the public template catalog) is independent of the factor definitions,
+    // so kick it off in parallel with scores.factors instead of serializing.
+    const metaP = Promise.allSettled([
+      api.templates.list(),
+      api.admin.listModels(),
+    ]);
+
     let factors: FactorsResponse | undefined;
     let factorsError: string | undefined;
     try {
@@ -75,10 +83,7 @@ export const handler = define.handlers({
 
     // Model name / kind / description: prefer the admin registry (richer), else
     // the public template catalog. Both are tolerated (the page works without).
-    const [tplR, modelsR] = await Promise.allSettled([
-      api.templates.list(),
-      api.admin.listModels(),
-    ]);
+    const [tplR, modelsR] = await metaP;
     if (tplR.status === "rejected") only(tplR.reason);
     // listModels may 403 for non-admins — only re-throw a genuine 401.
     if (modelsR.status === "rejected") only(modelsR.reason);

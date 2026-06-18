@@ -162,22 +162,15 @@ export const handler = define.handlers({
     const mode2Active = eins.length > 0 && modelVersion !== "";
 
     // Model options for the head-to-head picker + a version→type lookup so we
-    // can route each org's scores into the right pillar column.
+    // can route each org's scores into the right pillar column. Only needed at
+    // render (mode-1) / in the mode-2 pillar pass, so kick the fetch off now and
+    // consume it after the mode-1 org calls below (they share no input with it).
+    const optsP = listModelOptions(api, {
+      admin: isAdmin(ctx.state.principal),
+    });
+
     let models: ModelOpt[] = [];
     const typeOfVersion = new Map<string, string | undefined>();
-    try {
-      const opts = await listModelOptions(api, {
-        admin: isAdmin(ctx.state.principal),
-      });
-      models = opts.map((o) => ({
-        version: o.version,
-        label: o.label,
-        type: o.type,
-      }));
-      for (const o of opts) typeOfVersion.set(o.version, o.type);
-    } catch (e) {
-      only(e);
-    }
 
     let mode1Year: number | undefined;
     let mode1Name: string | undefined;
@@ -195,11 +188,26 @@ export const handler = define.handlers({
       const parsedYear = yearParam ? parseInt(yearParam, 10) : NaN;
       if (Number.isFinite(parsedYear)) {
         mode1Year = parsedYear;
-        try {
-          const org = await api.orgs.detail(ein);
-          if (org.name) mode1Name = org.name;
-        } catch (e) {
-          only(e);
+        // The name (orgs.detail) is cosmetic — it isn't an input to compare(),
+        // which is keyed by the explicit year — so run both concurrently.
+        const [detailR, cmpR] = await Promise.allSettled([
+          api.orgs.detail(ein),
+          api.scores.compare(ein, parsedYear),
+        ]);
+        if (detailR.status === "fulfilled") {
+          if (detailR.value.name) mode1Name = detailR.value.name;
+        } else {
+          only(detailR.reason);
+        }
+        if (cmpR.status === "fulfilled") {
+          mode1Scores = (cmpR.value.scores ?? []).slice().sort(
+            (a, b) => compareVersions(a.model_version, b.model_version),
+          );
+        } else {
+          only(cmpR.reason);
+          error = cmpR.reason instanceof Error
+            ? cmpR.reason.message
+            : "Failed to load scores.";
         }
       } else {
         try {
@@ -210,17 +218,31 @@ export const handler = define.handlers({
           only(e);
           // fall through with no year
         }
-      }
 
-      try {
-        const res = await api.scores.compare(ein, mode1Year as number);
-        mode1Scores = (res.scores ?? []).slice().sort(
-          (a, b) => compareVersions(a.model_version, b.model_version),
-        );
-      } catch (e) {
-        only(e);
-        error = e instanceof Error ? e.message : "Failed to load scores.";
+        try {
+          const res = await api.scores.compare(ein, mode1Year as number);
+          mode1Scores = (res.scores ?? []).slice().sort(
+            (a, b) => compareVersions(a.model_version, b.model_version),
+          );
+        } catch (e) {
+          only(e);
+          error = e instanceof Error ? e.message : "Failed to load scores.";
+        }
       }
+    }
+
+    // Consume the model-options fetch we kicked off above (needed by the mode-2
+    // pillar pass and the render-time picker).
+    try {
+      const opts = await optsP;
+      models = opts.map((o) => ({
+        version: o.version,
+        label: o.label,
+        type: o.type,
+      }));
+      for (const o of opts) typeOfVersion.set(o.version, o.type);
+    } catch (e) {
+      only(e);
     }
 
     // ---- Mode 2: many orgs head-to-head on one model ----------------------
