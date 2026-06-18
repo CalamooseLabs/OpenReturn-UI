@@ -423,7 +423,10 @@ export default function ModelWalkthrough(props: Props) {
     );
   };
 
-  const benchLabel = feat.normalization ?? null;
+  const benchLabel = feat.normalization?.substituted ??
+    feat.normalization?.expression ?? null;
+  const formulaText = feat.formula?.substituted ?? feat.formula?.expression ??
+    null;
 
   const chain = (
     <div style={{ padding: "22px" }}>
@@ -594,7 +597,7 @@ export default function ModelWalkthrough(props: Props) {
             flexWrap: "wrap",
           }}
         >
-          {feat.formula
+          {formulaText
             ? (
               <code
                 style={{
@@ -609,7 +612,7 @@ export default function ModelWalkthrough(props: Props) {
                   overflowWrap: "anywhere",
                 }}
               >
-                {feat.formula}
+                {formulaText}
               </code>
             )
             : den

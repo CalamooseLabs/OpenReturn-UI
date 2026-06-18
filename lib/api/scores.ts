@@ -98,8 +98,24 @@ export interface DebugFactor {
   formula_description?: string | null;
   inputs: string[];
   variables: DebugVariable[];
-  formula: string;
-  normalization?: string;
+  /** Rendered formula: human `expression` + `substituted` (with this org's numbers). */
+  formula: {
+    type?: string;
+    expression?: string;
+    substituted?: string;
+    raw_value?: number | null;
+    computable?: boolean;
+    note?: string | null;
+  };
+  /** Normalization step (benchmark → 0–1). */
+  normalization?: {
+    direction?: string;
+    benchmark_lo?: number;
+    benchmark_hi?: number;
+    expression?: string;
+    substituted?: string;
+    normalized?: number | null;
+  } | null;
   raw_value: number | null;
   normalized: number | null;
   weighted_value: number | null;
