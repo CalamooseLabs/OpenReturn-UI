@@ -144,6 +144,42 @@ Deno.test("POST /upload (grab) starts a background ingest", async () => {
   assertStringIncludes(res.body, "Ingest started");
 });
 
+Deno.test("GET /upload renders the When schedule picker (default 1 AM)", async () => {
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    backend: { "GET /upload/ingested": INGESTED },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, 'name="schedule_when"');
+  assertStringIncludes(res.body, "Tonight 1:00 AM");
+  // The 1 AM option is the default selection.
+  assertStringIncludes(res.body, 'value="01:00" selected');
+});
+
+Deno.test("POST /upload (grab) forwards the chosen schedule to the API", async () => {
+  let grabbed = false;
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    form: {
+      action: "grab",
+      url: "https://x/01A.zip",
+      schedule_when: "custom",
+      schedule_time: "02:30",
+    },
+    backend: {
+      "POST /upload/grab": () => {
+        grabbed = true;
+        return jsonResponse({ status: "started", source: "https://x/01A.zip" });
+      },
+      "GET /upload/ingested": INGESTED,
+    },
+  });
+  assertEquals(res.status, 200);
+  assert(grabbed, "backend POST /upload/grab was called");
+  assertStringIncludes(res.body, "Ingest started");
+  // (The schedule field-mapping itself is asserted in resources_test.ts.)
+});
+
 Deno.test("POST /upload (grab) surfaces a soft backend error", async () => {
   const res = await appRequest("/upload", {
     cookie: sessionCookie(ADMIN),

@@ -22,6 +22,66 @@ Deno.test("GET / shows the dashboard when signed in", async () => {
   assertStringIncludes(res.body, "Your watchlist");
 });
 
+Deno.test("dashboard renders the Non-Profits / Foundations type toggle", async () => {
+  const res = await appRequest("/", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "/organizations": () => jsonResponse({ total: 5 }),
+      "/admin/models": () =>
+        jsonResponse({
+          models: [
+            { version: 30, model_kind: "super_composite" },
+            {
+              version: 40,
+              model_kind: "super_composite",
+              applies_to: "foundation",
+            },
+          ],
+        }),
+      "/templates": () => jsonResponse({ templates: [{ version: 30 }] }),
+      "/follows": () => jsonResponse({ organizations: [] }),
+      "/scores/leaderboard": () => jsonResponse({ total: 0, leaderboard: [] }),
+    },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, "Non-Profits");
+  assertStringIncludes(res.body, "Foundations");
+  assertStringIncludes(res.body, 'href="/?type=nonprofit"');
+  assertStringIncludes(res.body, 'href="/?type=foundation"');
+});
+
+Deno.test("dashboard ?type=foundation scopes the leaderboard to foundations + the v40 model", async () => {
+  let lbUrl = "";
+  const res = await appRequest("/?type=foundation", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "/organizations": () => jsonResponse({ total: 2 }),
+      "/admin/models": () =>
+        jsonResponse({
+          models: [
+            { version: 30, model_kind: "super_composite" },
+            {
+              version: 40,
+              model_kind: "super_composite",
+              applies_to: "foundation",
+            },
+          ],
+        }),
+      "/templates": () => jsonResponse({ templates: [{ version: 30 }] }),
+      "/follows": () => jsonResponse({ organizations: [] }),
+      "/scores/leaderboard": (req) => {
+        lbUrl = req.url;
+        return jsonResponse({ total: 0, leaderboard: [] });
+      },
+    },
+  });
+  assertEquals(res.status, 200);
+  const q = new URL(lbUrl).searchParams;
+  assertEquals(q.get("type"), "foundation");
+  // Foundation type → the applies_to=foundation model (v40), not the v30 super-composite.
+  assertEquals(q.get("model"), "40");
+});
+
 Deno.test("top nav shows Organizations with the Non-Profits/Foundations submenu", async () => {
   const res = await appRequest("/", {
     cookie: sessionCookie(ADMIN),

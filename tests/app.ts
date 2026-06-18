@@ -7,7 +7,7 @@
 
 import server from "../_fresh/server.js";
 import { jsonResponse, stubFetch } from "./helpers.ts";
-import type { Principal } from "../lib/types.ts";
+import type { Principal } from "../src/lib/types.ts";
 
 const fetcher = (server as { fetch: (r: Request) => Promise<Response> }).fetch;
 

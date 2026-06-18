@@ -246,7 +246,7 @@ export function PillarGrid(props: { rows: PillarGridRow[] }) {
  * version when one exists, otherwise renders as a static block.
  */
 export function CompositeBanner(
-  props: { compositeVersion?: number; href?: string },
+  props: { compositeVersion?: string; href?: string },
 ) {
   const bannerInner = (
     <div class="flex flex-wrap items-center gap-6">

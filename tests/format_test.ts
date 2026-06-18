@@ -8,7 +8,7 @@ import {
   scoreColor,
   scorePct,
   titleCase,
-} from "../lib/format.ts";
+} from "../src/lib/format.ts";
 
 Deno.test("money formats USD and handles nullish", () => {
   assertEquals(money(1234), "$1,234");

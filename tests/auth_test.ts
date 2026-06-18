@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@^1";
-import { can, displayName, isAdmin, isLoggedIn } from "../lib/auth.ts";
-import type { Principal } from "../lib/types.ts";
+import { can, displayName, isAdmin, isLoggedIn } from "../src/lib/auth.ts";
+import type { Principal } from "../src/lib/types.ts";
 
 const viewer: Principal = {
   kind: "user",

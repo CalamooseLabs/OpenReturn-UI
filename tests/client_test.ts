@@ -1,5 +1,10 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@^1";
-import { apiBase, ApiError, request, softError } from "../lib/api/client.ts";
+import {
+  apiBase,
+  ApiError,
+  request,
+  softError,
+} from "../src/lib/api/client.ts";
 import { captureFetch, jsonResponse, stubFetch } from "./helpers.ts";
 
 Deno.test("request builds URL, drops empty query params, injects token", async () => {

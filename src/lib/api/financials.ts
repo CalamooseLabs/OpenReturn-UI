@@ -1,6 +1,20 @@
 import { ApiResource } from "./client.ts";
 import type { CodeNameDesc, FinancialFact } from "../types.ts";
 
+/** One organization with unresolved financial-fact conflicts. */
+export interface ConflictOrg {
+  ein: string;
+  name: string;
+  conflict_count: number;
+}
+
+export interface ConflictOrgsResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  organizations: ConflictOrg[];
+}
+
 /** /financials* — multi-source facts, conflicts, and canonical selection. */
 export class FinancialsApi extends ApiResource {
   facts(ein: string, year?: number) {
@@ -14,6 +28,13 @@ export class FinancialsApi extends ApiResource {
       "/financials/conflicts",
       { ein },
     );
+  }
+  /** Organizations that have at least one unresolved conflict (the inbox). */
+  conflictOrgs(params: { limit?: number; offset?: number } = {}) {
+    return this.get<ConflictOrgsResponse>("/financials/conflict-orgs", {
+      limit: params.limit,
+      offset: params.offset,
+    });
   }
   sources() {
     return this.get<{ sources: (CodeNameDesc & { rank?: number })[] }>(

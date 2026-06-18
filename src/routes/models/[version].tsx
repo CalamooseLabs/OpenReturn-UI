@@ -33,7 +33,7 @@ import type {
 } from "../../lib/types.ts";
 
 interface Data {
-  version: number;
+  version: string;
   factors?: FactorsResponse;
   factorsError?: string;
   // Best-effort model metadata for the header (name / kind), tolerated.
@@ -54,10 +54,13 @@ export const handler = define.handlers({
   async GET(ctx) {
     const api = ctx.state.api;
     const raw = ctx.params.version;
-    if (!/^\d+$/.test(raw)) {
-      return page<Data>({ version: 0, factorsError: "Unknown model version." });
+    if (!/^\d+(\.\d+)*$/.test(raw)) {
+      return page<Data>({
+        version: "",
+        factorsError: "Unknown model version.",
+      });
     }
-    const version = parseInt(raw, 10);
+    const version = raw;
 
     let factors: FactorsResponse | undefined;
     let factorsError: string | undefined;
@@ -142,7 +145,7 @@ export const handler = define.handlers({
 /** Resolve an example (ein, year, name) to trace: leaderboard top → org list. */
 async function pickExample(
   api: Api,
-  version: number,
+  version: string,
 ): Promise<{ ein: string; year: number; name?: string } | null> {
   // 1) the model's top-ranked org carries an ein + year directly.
   try {

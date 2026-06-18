@@ -102,12 +102,16 @@ export const handler = define.handlers({
     if (action === "discover" || action === "grab") {
       const url = String(form.get("url") ?? "").trim();
       const force = form.get("force") === "1";
+      // "When" control: a named clock time, "now", or a custom HH:MM input.
+      const when = String(form.get("schedule_when") ?? "now");
+      const custom = String(form.get("schedule_time") ?? "").trim();
+      const schedule = when === "custom" ? (custom || undefined) : when;
       const extra: Partial<Data> = { submittedUrl: url };
       try {
         if (action === "discover") {
           extra.discovered = await api.upload.discover(url);
         } else {
-          extra.grab = await api.upload.grab(url, force);
+          extra.grab = await api.upload.grab(url, force, schedule);
         }
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {

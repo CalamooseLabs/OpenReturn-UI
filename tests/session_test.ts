@@ -4,8 +4,8 @@ import {
   getCachedPrincipal,
   getSessionToken,
   setSessionCookies,
-} from "../lib/session.ts";
-import type { Principal } from "../lib/types.ts";
+} from "../src/lib/session.ts";
+import type { Principal } from "../src/lib/types.ts";
 
 function reqWithCookie(cookie: string): Request {
   return new Request("http://x/", { headers: { cookie } });

@@ -4,6 +4,7 @@ import { ApiError } from "../lib/api/mod.ts";
 import { Layout } from "../components/templates.tsx";
 import { OrgCard, type ScoredOrg } from "../components/organisms/OrgCard.tsx";
 import { to100 } from "../lib/score.ts";
+import { maxVersion } from "../lib/models.ts";
 import type { ModelSummary, Sector } from "../lib/types.ts";
 
 const LIMIT = 24;
@@ -27,7 +28,7 @@ interface Data {
   offset: number;
   states: { code: string; name: string }[];
   sectors: Sector[];
-  overallVersion?: number;
+  overallVersion?: string;
   error?: string;
 }
 
@@ -84,8 +85,8 @@ export const handler = define.handlers({
       : [];
     // Prefer a super_composite (the overall score); else the highest version.
     const overallVersion = models.length
-      ? Math.max(
-        ...(models.some((m) => m.model_kind === "super_composite")
+      ? maxVersion(
+        (models.some((m) => m.model_kind === "super_composite")
           ? models.filter((m) => m.model_kind === "super_composite")
           : models).map((m) => m.version),
       )

@@ -16,6 +16,7 @@ import {
 } from "../../components/organisms/OrgProfile.tsx";
 import { formatEin, titleCase } from "../../lib/format.ts";
 import { letterGrade, ordinal, to100 } from "../../lib/score.ts";
+import { compareVersions, maxVersion } from "../../lib/models.ts";
 import type {
   FinancialFact,
   OrgFull,
@@ -36,7 +37,7 @@ interface Data {
   org?: OrgFull;
   notFound?: boolean;
   error?: string;
-  overallVersion?: number;
+  overallVersion?: string;
   scores: ScoreRow[];
   history: ScoreHistoryRow[];
   ranking: Record<string, RankCell | null>;
@@ -102,8 +103,8 @@ export const handler = define.handlers({
     });
     const scores = scoresRes.scores ?? [];
     const overallVersion = scores.length
-      ? Math.max(...scores.map((s) => s.model_version))
-      : 30;
+      ? maxVersion(scores.map((s) => s.model_version))!
+      : "30";
 
     const latestYear = org.filings?.length
       ? Math.max(...org.filings.map((f) => f.year))
@@ -243,7 +244,9 @@ export default define.page<typeof handler>((ctx) => {
   const pillarValues = PILLARS.map((p) => {
     const rows = data.scores
       .filter((s) => !!s.model_type && p.types.includes(s.model_type))
-      .sort((a, b) => b.model_version - a.model_version || b.year - a.year);
+      .sort((a, b) =>
+        compareVersions(b.model_version, a.model_version) || b.year - a.year
+      );
     return rows.length ? to100(rows[0].total_score) : null;
   });
 

@@ -10,7 +10,12 @@ import {
   ScoreBar,
   Table,
 } from "../../components/ui.tsx";
-import { listModelOptions, type ModelOption } from "../../lib/models.ts";
+import {
+  listModelOptions,
+  type ModelOption,
+  pickOverallModel,
+} from "../../lib/models.ts";
+import { FilterChip } from "../../components/molecules.tsx";
 import { isAdmin } from "../../lib/auth.ts";
 import { formatEin } from "../../lib/format.ts";
 import type { LeaderboardRow, Sector } from "../../lib/types.ts";
@@ -18,7 +23,7 @@ import type { LeaderboardRow, Sector } from "../../lib/types.ts";
 const LIMIT = 25;
 
 interface Filters {
-  model: number | undefined;
+  model: string | undefined;
   year: string;
   sector: string;
   state: string;
@@ -53,15 +58,25 @@ export const handler = define.handlers({
       admin: isAdmin(ctx.state.principal),
     });
 
+    // The org-type toggle scopes the board and drives the default model.
+    const type = sp.get("type") === "foundation"
+      ? "foundation"
+      : sp.get("type") === "other"
+      ? "other"
+      : sp.get("type") === "nonprofit"
+      ? "nonprofit"
+      : "nonprofit";
+
     const modelParam = sp.get("model");
-    let model: number | undefined;
-    if (modelParam) {
-      const parsed = parseInt(modelParam, 10);
-      if (!isNaN(parsed)) model = parsed;
-    }
-    // Default to the LAST option (highest version, usually the super-composite).
-    if (model === undefined && models.length) {
-      model = models[models.length - 1].version;
+    let model: string | undefined;
+    if (modelParam) model = modelParam;
+    // No explicit model: pick the overall model for the active type
+    // (foundation → applies_to=foundation; else → super-composite).
+    if (model === undefined) {
+      model = await pickOverallModel(api, type).catch((e) => {
+        bubble401(e);
+        return models.length ? models[models.length - 1].version : undefined;
+      });
     }
 
     const filters: Filters = {
@@ -69,7 +84,7 @@ export const handler = define.handlers({
       year: sp.get("year")?.trim() ?? "",
       sector: sp.get("sector") ?? "",
       state: sp.get("state") ?? "",
-      type: sp.get("type") ?? "",
+      type,
       grantmaker: sp.get("grantmaker") === "1",
     };
 
@@ -171,6 +186,23 @@ export default define.page<typeof handler>((ctx) => {
         title="Leaderboards & rankings"
         subtitle="Rank organizations by any scoring model — globally or scoped to a sector, state, or type."
       />
+
+      {
+        /* Org-type toggle: re-scope the board to non-profits or foundations.
+          Clears the model so the type's default overall model is chosen. */
+      }
+      <div class="mb-6 flex gap-2">
+        <FilterChip
+          href="/reports?type=nonprofit"
+          label="Non-Profits"
+          active={f.type !== "foundation"}
+        />
+        <FilterChip
+          href="/reports?type=foundation"
+          label="Foundations"
+          active={f.type === "foundation"}
+        />
+      </div>
 
       {noModels
         ? (

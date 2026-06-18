@@ -42,6 +42,7 @@ const DATA_LINKS = [
   { href: "/people", label: "People" },
   { href: "/tags", label: "Tags" },
   { href: "/financials", label: "Financials" },
+  { href: "/conflicts", label: "Conflicts" },
 ];
 
 function active(path: string, href: string, exact?: boolean): boolean {

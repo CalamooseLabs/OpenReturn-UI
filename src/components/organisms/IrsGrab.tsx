@@ -78,6 +78,28 @@ export function GrabFromIrs(
               required
             />
           </div>
+          <div class="mt-3 grid gap-4 sm:grid-cols-2">
+            <div class="field">
+              <label class="label" for="schedule_when">When</label>
+              <select class="select" id="schedule_when" name="schedule_when">
+                <option value="now">Now</option>
+                <option value="01:00" selected>Tonight 1:00 AM</option>
+                <option value="custom">Custom time…</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="label" for="schedule_time">
+                Custom time (HH:MM)
+              </label>
+              <input
+                class="input"
+                id="schedule_time"
+                name="schedule_time"
+                type="time"
+                placeholder="02:00"
+              />
+            </div>
+          </div>
           <div class="mt-3 flex flex-wrap items-center gap-3">
             <Button type="submit" name="action" value="discover">
               Discover

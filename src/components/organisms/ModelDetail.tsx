@@ -45,7 +45,7 @@ export interface CompositionSegment {
 
 export interface ModelHeaderCardProps {
   name: string;
-  version: number;
+  version: string;
   /** 990-derived (blue dot) vs qualitative (gray dot). */
   derived: boolean;
   /** Reviewer-graded model (adds a "Manual" chip). */

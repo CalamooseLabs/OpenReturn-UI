@@ -16,12 +16,9 @@ export const handler = define.handlers({
     const format = (sp.get("format") ?? "pdf").toLowerCase();
 
     // Resolve the model (default to the highest available, as on the page).
-    let model: number | undefined;
+    let model: string | undefined;
     const modelParam = sp.get("model");
-    if (modelParam) {
-      const parsed = parseInt(modelParam, 10);
-      if (!isNaN(parsed)) model = parsed;
-    }
+    if (modelParam) model = modelParam;
     let modelLabel = model !== undefined ? `v${model}` : "";
     try {
       const opts = await listModelOptions(api, {

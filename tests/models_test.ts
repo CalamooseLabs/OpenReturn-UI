@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@^1";
-import { listModelOptions } from "../lib/models.ts";
-import { ApiError } from "../lib/api/mod.ts";
-import { createApi } from "../lib/api/mod.ts";
+import { listModelOptions } from "../src/lib/models.ts";
+import { ApiError } from "../src/lib/api/mod.ts";
+import { createApi } from "../src/lib/api/mod.ts";
 import { captureFetch, jsonResponse, stubFetch } from "./helpers.ts";
 
 const MODELS = {
@@ -9,13 +9,13 @@ const MODELS = {
     jsonResponse({
       models: [
         {
-          version: 30,
+          version: "30",
           model_kind: "super_composite",
           model_type: "financial",
           description: "Overall",
         },
         {
-          version: 10,
+          version: "10",
           model_kind: "model",
           model_type: "financial",
           description: "Operating",
@@ -30,7 +30,7 @@ const MODELS = {
           name: "Operating",
           kind: "model",
           type: "financial",
-          version: 10,
+          version: "10",
           factor_count: 7,
         },
       ],
@@ -41,7 +41,7 @@ Deno.test("admin caller lists registered models, sorted by version", async () =>
   const { calls, restore } = captureFetch(MODELS);
   try {
     const opts = await listModelOptions(createApi("tok"), { admin: true });
-    assertEquals(opts.map((o) => o.version), [10, 30]);
+    assertEquals(opts.map((o) => o.version), ["10", "30"]);
     assertEquals(calls[0].pathname, "/admin/models");
   } finally {
     restore();
@@ -53,7 +53,7 @@ Deno.test("non-admin falls back to the template catalog", async () => {
   try {
     const opts = await listModelOptions(createApi("tok"), { admin: false });
     assertEquals(opts.length, 1);
-    assertEquals(opts[0].version, 10);
+    assertEquals(opts[0].version, "10");
     assertEquals(calls[0].pathname, "/templates");
   } finally {
     restore();

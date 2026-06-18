@@ -9,7 +9,7 @@ import type {
 } from "../types.ts";
 
 export interface LeaderboardParams {
-  model: number;
+  model: string;
   year?: number;
   sector?: string;
   state?: string;
@@ -27,9 +27,9 @@ export class ScoresApi extends ApiResource {
   list(ein: string) {
     return this.get<{ ein: string; scores: ScoreRow[] }>("/scores", { ein });
   }
-  history(ein: string, version: number) {
+  history(ein: string, version: string) {
     return this.get<
-      { ein: string; model_version: number; history: ScoreHistoryRow[] }
+      { ein: string; model_version: string; history: ScoreHistoryRow[] }
     >(
       "/scores/history",
       { ein, version },
@@ -44,10 +44,10 @@ export class ScoresApi extends ApiResource {
   leaderboard(params: LeaderboardParams) {
     return this.get<LeaderboardResponse>("/scores/leaderboard", { ...params });
   }
-  ranking(ein: string, model: number, year?: number) {
+  ranking(ein: string, model: string, year?: number) {
     return this.get<RankingResponse>("/scores/ranking", { ein, model, year });
   }
-  factors(version: number) {
+  factors(version: string) {
     return this.get<FactorsResponse>("/scores/factors", { version });
   }
   kinds() {
@@ -57,7 +57,7 @@ export class ScoresApi extends ApiResource {
     return this.get<{ types: CodeNameDesc[] }>("/scores/types");
   }
   /** Full evaluation trace for an org-year-model: formula → numbers → 990 source. */
-  debug(ein: string, year: number, version: number) {
+  debug(ein: string, year: number, version: string) {
     return this.get<DebugTrace>("/scores/debug", { ein, year, version });
   }
 }
@@ -126,7 +126,7 @@ export interface DebugTrace {
   year: number;
   filing_id: string;
   form_code?: string;
-  model_version: number;
+  model_version: string;
   model_type?: string | null;
   model_kind?: string | null;
   total_score: number;

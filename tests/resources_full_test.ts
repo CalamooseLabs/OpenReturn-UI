@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@^1";
-import { createApi } from "../lib/api/mod.ts";
+import { createApi } from "../src/lib/api/mod.ts";
 import { captureFetch } from "./helpers.ts";
 
 // Exhaustively exercise every resource method, asserting it maps to the right
@@ -30,11 +30,15 @@ Deno.test("every API resource method maps to the right method + path", async () 
     ["POST", "/organizations/favorite", () => api.orgs.favorite({ ein: "1" })],
     // scores
     ["GET", "/scores", () => api.scores.list("1")],
-    ["GET", "/scores/history", () => api.scores.history("1", 1)],
+    ["GET", "/scores/history", () => api.scores.history("1", "1")],
     ["GET", "/scores/compare", () => api.scores.compare("1", 2023)],
-    ["GET", "/scores/leaderboard", () => api.scores.leaderboard({ model: 1 })],
-    ["GET", "/scores/ranking", () => api.scores.ranking("1", 1)],
-    ["GET", "/scores/factors", () => api.scores.factors(1)],
+    [
+      "GET",
+      "/scores/leaderboard",
+      () => api.scores.leaderboard({ model: "1" }),
+    ],
+    ["GET", "/scores/ranking", () => api.scores.ranking("1", "1")],
+    ["GET", "/scores/factors", () => api.scores.factors("1")],
     ["GET", "/scores/kinds", () => api.scores.kinds()],
     ["GET", "/scores/types", () => api.scores.types()],
     // people

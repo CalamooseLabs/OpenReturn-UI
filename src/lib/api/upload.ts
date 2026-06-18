@@ -75,8 +75,16 @@ export class UploadApi extends ApiResource {
   discover(url?: string) {
     return this.post<DiscoverResponse>("/upload/discover", { url });
   }
-  /** Start a detached background ingest of `url` (briefly restarts the server). */
-  grab(url: string, force = false) {
-    return this.post<GrabResponse>("/upload/grab", { url, force });
+  /**
+   * Start a detached background ingest of `url` (briefly restarts the server).
+   * `schedule` defers the run: omit/"now" = immediate; "01:00" = a clock time.
+   */
+  grab(url: string, force = false, schedule?: string) {
+    const body: { url: string; force: boolean; schedule?: string } = {
+      url,
+      force,
+    };
+    if (schedule && schedule !== "now") body.schedule = schedule;
+    return this.post<GrabResponse>("/upload/grab", body);
   }
 }

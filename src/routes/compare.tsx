@@ -11,14 +11,14 @@ import {
 } from "../components/organisms/ComparisonTable.tsx";
 import { formatEin, normalizeEin } from "../lib/format.ts";
 import { to100 } from "../lib/score.ts";
-import { listModelOptions } from "../lib/models.ts";
+import { compareVersions, listModelOptions } from "../lib/models.ts";
 import { isAdmin } from "../lib/auth.ts";
 import type { FinancialFact, OrgFull, ScoreRow } from "../lib/types.ts";
 
 /* ------------------------------------------------------------------ types */
 
 interface ModelOpt {
-  version: number;
+  version: string;
   label: string;
   type?: string;
 }
@@ -119,7 +119,7 @@ function latestYear(org: OrgFull): number | undefined {
 /** Latest score for the model whose type matches one of `types` (0–100). */
 function pillarScore(
   scores: ScoreRow[],
-  typeOfVersion: Map<number, string | undefined>,
+  typeOfVersion: Map<string, string | undefined>,
   types: string[],
 ): number | null {
   const matching = scores.filter((s) =>
@@ -156,15 +156,15 @@ export const handler = define.handlers({
 
     const ein = einRaw ? normalizeEin(einRaw) : "";
     const eins = parseEins(einsRaw);
-    const modelVersion = modelParam ? parseInt(modelParam, 10) : NaN;
+    const modelVersion = modelParam ?? "";
 
     const mode1Active = !!ein;
-    const mode2Active = eins.length > 0 && Number.isFinite(modelVersion);
+    const mode2Active = eins.length > 0 && modelVersion !== "";
 
     // Model options for the head-to-head picker + a version→type lookup so we
     // can route each org's scores into the right pillar column.
     let models: ModelOpt[] = [];
-    const typeOfVersion = new Map<number, string | undefined>();
+    const typeOfVersion = new Map<string, string | undefined>();
     try {
       const opts = await listModelOptions(api, {
         admin: isAdmin(ctx.state.principal),
@@ -215,7 +215,7 @@ export const handler = define.handlers({
       try {
         const res = await api.scores.compare(ein, mode1Year as number);
         mode1Scores = (res.scores ?? []).slice().sort(
-          (a, b) => a.model_version - b.model_version,
+          (a, b) => compareVersions(a.model_version, b.model_version),
         );
       } catch (e) {
         only(e);

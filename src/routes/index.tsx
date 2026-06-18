@@ -2,7 +2,7 @@ import { define } from "../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../lib/api/mod.ts";
 import { Layout } from "../components/templates.tsx";
-import { KpiCard } from "../components/molecules.tsx";
+import { FilterChip, KpiCard } from "../components/molecules.tsx";
 import {
   DashboardApiError,
   DashboardHeader,
@@ -18,6 +18,7 @@ import {
   Watchlist,
 } from "../components/organisms/Dashboard.tsx";
 import { scoreBand, to100 } from "../lib/score.ts";
+import { pickOverallModel } from "../lib/models.ts";
 import type { LeaderboardRow, OrgSummary } from "../lib/types.ts";
 
 interface Data {
@@ -26,7 +27,9 @@ interface Data {
   modelCount?: number;
   following: OrgSummary[];
   leaderboard: LeaderboardRow[];
-  overallVersion?: number;
+  overallVersion?: string;
+  /** "nonprofit" | "foundation" — the type the page is scoped to. */
+  orgType: string;
   apiError?: string;
 }
 
@@ -38,13 +41,21 @@ function bubble401(reason: unknown) {
 export const handler = define.handlers({
   async GET(ctx) {
     const principal = ctx.state.principal;
+    const orgType = ctx.url.searchParams.get("type") === "foundation"
+      ? "foundation"
+      : "nonprofit";
     if (!principal) {
-      return page<Data>({ loggedIn: false, following: [], leaderboard: [] });
+      return page<Data>({
+        loggedIn: false,
+        following: [],
+        leaderboard: [],
+        orgType,
+      });
     }
 
     const api = ctx.state.api;
     const results = await Promise.allSettled([
-      api.orgs.list({ limit: 1 }),
+      api.orgs.list({ limit: 1, type: orgType }),
       api.templates.list(),
       api.follows.list(),
     ]);
@@ -60,22 +71,23 @@ export const handler = define.handlers({
       ? results[2].value
       : undefined;
 
-    // Overall score for an org is the highest model version (the super-composite).
-    // Derive it from the template catalog; fall back to 30 (the org-profile default).
-    const templateVersions = tpl?.templates
-      ?.map((t) => t.version)
-      .filter((v): v is number => typeof v === "number") ?? [];
-    const overallVersion = templateVersions.length
-      ? Math.max(...templateVersions)
-      : 30;
+    // The "overall" model depends on the active type: the super-composite for
+    // nonprofits (v30), the foundation-stewardship model for foundations (v40).
+    const overallVersion = await pickOverallModel(api, orgType).catch((e) => {
+      bubble401(e);
+      return orgType === "foundation" ? "40" : "30";
+    });
 
-    // Portfolio stats are derived from a slice of the leaderboard for that model.
-    const lbRes = await api.scores
-      .leaderboard({ model: overallVersion, limit: 50 })
-      .catch((e) => {
-        bubble401(e);
-        return undefined;
-      });
+    // Portfolio stats are derived from a slice of the leaderboard for that model,
+    // scoped to the active org type.
+    const lbRes = overallVersion !== undefined
+      ? await api.scores
+        .leaderboard({ model: overallVersion, type: orgType, limit: 50 })
+        .catch((e) => {
+          bubble401(e);
+          return undefined;
+        })
+      : undefined;
     const leaderboard = lbRes?.leaderboard ?? [];
 
     const apiError = results.every((r) => r.status === "rejected")
@@ -89,6 +101,7 @@ export const handler = define.handlers({
       following: follows?.organizations ?? [],
       leaderboard,
       overallVersion,
+      orgType,
       apiError,
     });
   },
@@ -214,6 +227,20 @@ export default define.page<typeof handler>((ctx) => {
         trackedCount={trackedCount}
         followCount={followCount}
       />
+
+      {/* Org-type toggle: re-scope the portfolio to non-profits or foundations. */}
+      <div class="mb-6 flex gap-2">
+        <FilterChip
+          href="/?type=nonprofit"
+          label="Non-Profits"
+          active={data.orgType !== "foundation"}
+        />
+        <FilterChip
+          href="/?type=foundation"
+          label="Foundations"
+          active={data.orgType === "foundation"}
+        />
+      </div>
 
       {/* KPI row */}
       <div

@@ -32,7 +32,15 @@ export interface GrantsResponse {
 
 /** /organizations* — search, lookup, vocab, grants, and mutations. */
 export class OrgsApi extends ApiResource {
-  list(params: { limit?: number; offset?: number } = {}) {
+  list(
+    params: {
+      limit?: number;
+      offset?: number;
+      type?: string;
+      sector?: string;
+      grantmaker?: number;
+    } = {},
+  ) {
     return this.get<OrgListResponse>("/organizations", { ...params });
   }
   search(params: OrgSearchParams) {

@@ -80,10 +80,10 @@ writable work dir, builds once, and serves — used by the NixOS module.
 Hermetic, offline tests (no real backend). Run `deno task test` (the dev shell
 also exposes `test`).
 
-- **Unit tests** exercise the `lib/` layer directly: `format`, `auth`, `session`
-  (cookies), `export` (CSV escaping + PDF bytes), the low-level `request()`
-  (URL/query/error handling via a stubbed `fetch`), every API resource class
-  (right path/method/body), and `models` discovery.
+- **Unit tests** exercise the `src/lib/` layer directly: `format`, `auth`,
+  `session` (cookies), `export` (CSV escaping + PDF bytes), the low-level
+  `request()` (URL/query/error handling via a stubbed `fetch`), every API
+  resource class (right path/method/body), and `models` discovery.
 - **Route/integration tests** drive the **built** server (`_fresh/server.js`)
   through `tests/app.ts`'s `appRequest()` helper with a **stubbed backend**
   (`globalThis.fetch` returns canned API JSON), asserting status, rendered HTML,
@@ -92,26 +92,36 @@ also exposes `test`).
 
 ## Project structure
 
+App code lives under `src/`; config/build files stay at the repo root (mirroring
+the OpenReturn backend). The Vite root stays the repo root — `vite.config.ts`
+points the Fresh plugin at `src/` (`serverEntry`/`clientEntry`/`routeDir`/
+`islandsDir`/`staticDir`), so the build output `_fresh/` is still at the root.
+
 ```
-main.ts            App() + middleware (session load, bind ctx.state.api, 401→/login) + fsRoutes
-utils.ts           define = createDefine<State>()  (State: sessionKey, principal, api)
-client.ts          imports assets/styles.css (Tailwind)
-vite.config.ts     Fresh + Tailwind Vite plugins
-lib/
-  api/             class-based API client (mirrors the backend's db.<concern>):
-    client.ts        request() + ApiError + the ApiResource base class
-    mod.ts           Api coordinator (new Api(token) → .orgs/.scores/.people/…)
-    orgs.ts scores.ts people.ts tags.ts lists.ts financials.ts
-    follows.ts templates.ts admin.ts upload.ts auth.ts   (one resource each)
-  session.ts       httpOnly session + cached-principal cookies
-  auth.ts          permission helpers (can / isAdmin)
-  models.ts        model-picker discovery (/admin/models | /templates)
-  export.ts        report CSV + PDF (pdf-lib) generation
-  format.ts        money / score% / EIN formatting
-  types.ts         shared response interfaces
-components/        Layout, Nav, ui.tsx (Card, Table, Badge, ScoreBar, …)
-routes/            pages + _app/_404/_error
-tests/             unit + hermetic route/integration tests
+deno.json          tasks, import map, compiler options
+vite.config.ts     Fresh (pointed at src/) + Tailwind Vite plugins
+flake.nix flake.lock shell.nix build.nix module.nix   nix dev shell, package, NixOS module
+tests/             unit + hermetic route/integration tests (import ../src/lib, ../_fresh)
+src/
+  main.ts          App() + middleware (session load, bind ctx.state.api, 401→/login) + fsRoutes
+  utils.ts         define = createDefine<State>()  (State: sessionKey, principal, api)
+  client.ts        imports assets/styles.css (Tailwind)
+  lib/
+    api/           class-based API client (mirrors the backend's db.<concern>):
+      client.ts      request() + ApiError + the ApiResource base class
+      mod.ts         Api coordinator (new Api(token) → .orgs/.scores/.people/…)
+      orgs.ts scores.ts people.ts tags.ts lists.ts financials.ts
+      follows.ts templates.ts admin.ts upload.ts auth.ts   (one resource each)
+    session.ts     httpOnly session + cached-principal cookies
+    auth.ts        permission helpers (can / isAdmin)
+    models.ts      model-picker discovery (/admin/models | /templates)
+    export.ts      report CSV + PDF (pdf-lib) generation
+    format.ts      money / score% / EIN formatting
+    types.ts       shared response interfaces
+  components/      atomic design — atoms.tsx, molecules.tsx, templates.tsx, organisms/
+  islands/         client-side interactive components
+  routes/          pages + _app/_404/_error
+  static/ assets/  static files + the Tailwind stylesheet entry
 ```
 
 ## NixOS module

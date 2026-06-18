@@ -24,6 +24,7 @@ import {
 import PrintButton from "../../islands/PrintButton.tsx";
 import { formatEin, titleCase } from "../../lib/format.ts";
 import { letterGrade, scoreBand, to100 } from "../../lib/score.ts";
+import { compareVersions, maxVersion } from "../../lib/models.ts";
 import type {
   FinancialFact,
   ModelSummary,
@@ -92,8 +93,8 @@ export const handler = define.handlers({
     });
     const scores = scoresRes.scores ?? [];
     const overallVersion = scores.length
-      ? Math.max(...scores.map((s) => s.model_version))
-      : 30;
+      ? maxVersion(scores.map((s) => s.model_version))!
+      : "30";
 
     const latestYear = org.filings?.length
       ? Math.max(...org.filings.map((f) => f.year))
@@ -249,7 +250,7 @@ export default define.page<typeof handler>((ctx) => {
       : undefined);
 
   // ----- Pillar scores: latest score per model TYPE -----
-  const typeByVersion = new Map<number, string>();
+  const typeByVersion = new Map<string, string>();
   for (const m of data.models) {
     if (m.model_type) typeByVersion.set(m.version, m.model_type);
   }
@@ -259,7 +260,9 @@ export default define.page<typeof handler>((ctx) => {
         const t = typeByVersion.get(s.model_version);
         return t !== undefined && p.types.includes(t);
       })
-      .sort((a, b) => b.model_version - a.model_version || b.year - a.year);
+      .sort((a, b) =>
+        compareVersions(b.model_version, a.model_version) || b.year - a.year
+      );
     const value = rows.length ? to100(rows[0].total_score) : null;
     return { label: p.label, value, note: pillarNarrative(p.label, value) };
   });

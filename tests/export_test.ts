@@ -1,5 +1,10 @@
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert@^1";
-import { csvResponse, pdfResponse, tablePdf, toCsv } from "../lib/export.ts";
+import {
+  csvResponse,
+  pdfResponse,
+  tablePdf,
+  toCsv,
+} from "../src/lib/export.ts";
 
 Deno.test("toCsv joins rows and quotes special chars", () => {
   const csv = toCsv(["Rank", "Org", "Score"], [

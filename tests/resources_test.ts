@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert@^1";
-import { createApi } from "../lib/api/mod.ts";
+import { createApi } from "../src/lib/api/mod.ts";
 import { captureFetch } from "./helpers.ts";
 
 Deno.test("orgs resource maps methods to endpoints", async () => {
@@ -28,14 +28,14 @@ Deno.test("scores resource", async () => {
   const { calls, restore } = captureFetch();
   const api = createApi(null);
   try {
-    await api.scores.history("1", 30);
+    await api.scores.history("1", "30");
     await api.scores.leaderboard({
-      model: 30,
+      model: "30",
       state: "TX",
       limit: 25,
       offset: 0,
     });
-    await api.scores.ranking("1", 30, 2023);
+    await api.scores.ranking("1", "30", 2023);
   } finally {
     restore();
   }
@@ -85,6 +85,38 @@ Deno.test("POST resources send JSON bodies", async () => {
     username: "bob",
     role: "editor",
   });
+});
+
+Deno.test("financials conflictOrgs hits the inbox endpoint with paging", async () => {
+  const { calls, restore } = captureFetch();
+  const api = createApi("tok");
+  try {
+    await api.financials.conflictOrgs({ limit: 25, offset: 50 });
+  } finally {
+    restore();
+  }
+  assertEquals(calls[0].method, "GET");
+  assertEquals(calls[0].pathname, "/financials/conflict-orgs");
+  assertEquals(calls[0].query.get("limit"), "25");
+  assertEquals(calls[0].query.get("offset"), "50");
+});
+
+Deno.test("upload grab sends a schedule when given (and omits it for 'now')", async () => {
+  const { calls, restore } = captureFetch();
+  const api = createApi("tok");
+  try {
+    await api.upload.grab("https://x/01A.zip", false, "01:00");
+    await api.upload.grab("https://x/01A.zip", true, "now");
+    await api.upload.grab("https://x/01A.zip");
+  } finally {
+    restore();
+  }
+  assertEquals(calls[0].pathname, "/upload/grab");
+  assertEquals(JSON.parse(calls[0].bodyText).schedule, "01:00");
+  // "now" and an omitted schedule both send no schedule field.
+  assertEquals(JSON.parse(calls[1].bodyText).schedule, undefined);
+  assertEquals(JSON.parse(calls[1].bodyText).force, true);
+  assertEquals(JSON.parse(calls[2].bodyText).schedule, undefined);
 });
 
 Deno.test("upload resource forwards multipart without a JSON content-type", async () => {

@@ -79,6 +79,63 @@ Deno.test("GET /reports renders the leaderboard with export links", async () => 
   assertStringIncludes(res.body, "format=csv");
 });
 
+Deno.test("GET /reports renders the Non-Profits / Foundations toggle", async () => {
+  const res = await appRequest("/reports", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      ...VOCAB,
+      ...ADMIN_MODELS,
+      "/scores/leaderboard": leaderboard([]),
+    },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, "Non-Profits");
+  assertStringIncludes(res.body, "Foundations");
+  assertStringIncludes(res.body, 'href="/reports?type=nonprofit"');
+  assertStringIncludes(res.body, 'href="/reports?type=foundation"');
+});
+
+Deno.test("GET /reports?type=foundation scopes the leaderboard + picks the foundation model", async () => {
+  let lbUrl = "";
+  const res = await appRequest("/reports?type=foundation", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      ...VOCAB,
+      "/admin/models": () =>
+        jsonResponse({
+          models: [
+            {
+              version: 30,
+              description: "Overall Score",
+              model_kind: "super_composite",
+            },
+            {
+              version: 40,
+              description: "Foundation stewardship",
+              model_kind: "super_composite",
+              applies_to: "foundation",
+            },
+          ],
+        }),
+      "/scores/leaderboard": (req) => {
+        lbUrl = req.url;
+        return jsonResponse({
+          model_version: 40,
+          year: 2023,
+          total: 0,
+          limit: 25,
+          offset: 0,
+          leaderboard: [],
+        });
+      },
+    },
+  });
+  assertEquals(res.status, 200);
+  const q = new URL(lbUrl).searchParams;
+  assertEquals(q.get("type"), "foundation");
+  assertEquals(q.get("model"), "40");
+});
+
 Deno.test("GET /reports shows the empty state when no models are registered", async () => {
   const res = await appRequest("/reports", {
     cookie: sessionCookie(ADMIN),

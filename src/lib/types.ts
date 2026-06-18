@@ -89,7 +89,7 @@ export interface ScoreHistoryRow {
 
 export interface ScoreRow {
   score_id: number;
-  model_version: number;
+  model_version: string;
   filing_id?: string;
   year: number;
   total_score: number;
@@ -108,7 +108,7 @@ export interface LeaderboardRow {
 }
 
 export interface LeaderboardResponse {
-  model_version: number;
+  model_version: string;
   year: number | null;
   total: number;
   limit: number;
@@ -126,17 +126,19 @@ export interface RankCell {
 
 export interface RankingResponse {
   ein: string;
-  model_version: number;
+  model_version: string;
   year: number | null;
   dimensions: Record<string, RankCell | null>;
 }
 
 export interface ModelSummary {
-  version: number;
+  version: string;
   description?: string | null;
   model_type?: string | null;
   scoring_mode?: string | null;
   model_kind?: string | null;
+  /** Which org type the model applies to (e.g. "foundation"); null = any. */
+  applies_to?: string | null;
   created_at?: string;
 }
 
@@ -154,7 +156,7 @@ export interface FactorDef {
 }
 
 export interface FactorsResponse {
-  model_version: number;
+  model_version: string;
   model_type?: string;
   scoring_mode?: string;
   model_kind?: string;
@@ -167,7 +169,7 @@ export interface TemplateSummary {
   description?: string;
   kind: string;
   type: string;
-  version: number;
+  version: string;
   factor_count: number;
 }
 

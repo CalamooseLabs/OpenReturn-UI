@@ -5,7 +5,11 @@ import { Layout } from "../../components/templates.tsx";
 import { Flash } from "../../components/molecules.tsx";
 import { titleCase } from "../../lib/format.ts";
 import { isAdmin } from "../../lib/auth.ts";
-import { listModelOptions, type ModelOption } from "../../lib/models.ts";
+import {
+  compareVersions,
+  listModelOptions,
+  type ModelOption,
+} from "../../lib/models.ts";
 import {
   CompositeBanner,
   MethodologyNote,
@@ -23,7 +27,7 @@ import type {
 /** Definition shape returned by /templates/detail and accepted by POST /admin/models. */
 interface ModelDefinition {
   model: {
-    version: number;
+    version: string;
     type?: string;
     kind?: string;
     missing_data?: string;
@@ -55,9 +59,9 @@ interface Data {
   // Pillar → matched registered model + its factor names (feature chips).
   pillarFactors: Record<string, string[]>;
   // Highest super-composite/composite version for the banner link, if any.
-  compositeVersion?: number;
+  compositeVersion?: string;
   // Selected model factor breakdown (?version=).
-  selectedVersion?: number;
+  selectedVersion?: string;
   factors?: FactorsResponse;
   factorsError?: string;
   // Selected template (?template=) — definition + prefill text.
@@ -77,7 +81,7 @@ function only(reason: unknown) {
 
 const SKELETON = `{
   "model": {
-    "version": 100,
+    "version": "100",
     "type": "financial",
     "kind": "model",
     "description": "My scoring model"
@@ -165,7 +169,7 @@ function modelForType(
       m.type === type && m.kind !== "composite" &&
       m.kind !== "super_composite"
     )
-    .sort((a, b) => a.version - b.version)[0];
+    .sort((a, b) => compareVersions(a.version, b.version))[0];
 }
 
 export const handler = define.handlers({
@@ -175,8 +179,8 @@ export const handler = define.handlers({
     const sp = ctx.url.searchParams;
 
     const versionRaw = sp.get("version")?.trim() ?? "";
-    const selectedVersion = versionRaw && /^\d+$/.test(versionRaw)
-      ? parseInt(versionRaw, 10)
+    const selectedVersion = versionRaw && /^\d+(\.\d+)*$/.test(versionRaw)
+      ? versionRaw
       : undefined;
     const selectedTemplate = sp.get("template")?.trim() || undefined;
 
@@ -211,7 +215,7 @@ export const handler = define.handlers({
     );
     const compositeVersion = (composites.length ? composites : models)
       .map((m) => m.version)
-      .sort((a, b) => b - a)[0];
+      .sort((a, b) => compareVersions(b, a))[0];
 
     // Pull factor names for each matched pillar model (feature chips). These
     // are independent reads — fan them out and tolerate per-model failure.
