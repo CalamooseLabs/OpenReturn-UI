@@ -15,6 +15,8 @@ export function Layout(
   props: {
     principal: Principal | null;
     path: string;
+    /** The raw query string (e.g. ctx.url.search) for query-aware nav highlighting. */
+    search?: string;
     children: ComponentChildren;
     wide?: boolean;
     bleed?: boolean;
@@ -22,7 +24,11 @@ export function Layout(
 ) {
   return (
     <div class="min-h-screen">
-      <TopNav principal={props.principal} path={props.path} />
+      <TopNav
+        principal={props.principal}
+        path={props.path}
+        search={props.search}
+      />
       {props.bleed ? props.children : (
         <main
           class={`mx-auto px-9 py-9 ${

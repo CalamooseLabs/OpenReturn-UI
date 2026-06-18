@@ -1,6 +1,60 @@
 import { ApiResource } from "./client.ts";
 
-/** /upload* — bulk ZIP of 990 XML and single-PDF OCR (multipart). */
+/** One archive pulled from a URL (the `ingested_zip` ledger). */
+export interface GrabbedArchive {
+  source: string;
+  url?: string | null;
+  filename?: string | null;
+  content_length?: number | null;
+  filings_stored?: number | null;
+  last_modified?: string | null;
+  ingested_at?: string | null;
+}
+
+/** One source ZIP summarized from the filing table (any ingest method). */
+export interface ArchiveSummary {
+  zip_filename: string | null;
+  filings: number;
+  first_year: number | null;
+  last_year: number | null;
+  first_ingested: string | null;
+  last_ingested: string | null;
+}
+
+export interface IngestedResponse {
+  grabbed: GrabbedArchive[];
+  grabbed_count: number;
+  archives: ArchiveSummary[];
+  ingest_running: boolean;
+  ingest: { pid?: number; source?: string; started_at?: string } | null;
+  default_source: string;
+}
+
+/** A discoverable archive at a URL, flagged with whether it's already ingested. */
+export interface DiscoveredArchive {
+  url: string;
+  filename: string;
+  ingested: boolean;
+}
+
+export interface DiscoverResponse {
+  source: string;
+  count: number;
+  new: number;
+  archives: DiscoveredArchive[];
+  error?: string;
+}
+
+export interface GrabResponse {
+  status?: string;
+  source?: string;
+  force?: boolean;
+  note?: string;
+  error?: string;
+  detail?: string;
+}
+
+/** /upload* — bulk ZIP of 990 XML, single-PDF OCR, and grab-from-IRS. */
 export class UploadApi extends ApiResource {
   /** Upload a ZIP of 990 XML filings. `form` must contain the .zip file part. */
   zip(form: FormData) {
@@ -12,5 +66,17 @@ export class UploadApi extends ApiResource {
       ein,
       year,
     });
+  }
+  /** What has been grabbed/ingested, plus whether an ingest is running now. */
+  ingested() {
+    return this.get<IngestedResponse>("/upload/ingested");
+  }
+  /** Dry run: list the ZIP archives reachable at `url` (default the IRS page). */
+  discover(url?: string) {
+    return this.post<DiscoverResponse>("/upload/discover", { url });
+  }
+  /** Start a detached background ingest of `url` (briefly restarts the server). */
+  grab(url: string, force = false) {
+    return this.post<GrabResponse>("/upload/grab", { url, force });
   }
 }

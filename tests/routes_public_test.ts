@@ -22,6 +22,24 @@ Deno.test("GET / shows the dashboard when signed in", async () => {
   assertStringIncludes(res.body, "Your watchlist");
 });
 
+Deno.test("top nav shows Organizations with the Non-Profits/Foundations submenu", async () => {
+  const res = await appRequest("/", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "/organizations": () => jsonResponse({ total: 1 }),
+      "/templates": () => jsonResponse({ templates: [] }),
+      "/follows": () => jsonResponse({ organizations: [] }),
+    },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, ">Organizations<");
+  assertStringIncludes(res.body, 'href="/search"'); // parent → full directory
+  assertStringIncludes(res.body, 'href="/search?type=nonprofit"');
+  assertStringIncludes(res.body, 'href="/search?type=foundation"');
+  assertStringIncludes(res.body, "Non-Profits");
+  assertStringIncludes(res.body, "Foundations");
+});
+
 Deno.test("GET /login renders the form", async () => {
   const res = await appRequest("/login");
   assertEquals(res.status, 200);

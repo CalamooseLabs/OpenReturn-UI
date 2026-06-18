@@ -57,6 +57,107 @@ Deno.test("POST /upload (zip) ingests and renders the result", async () => {
   assertStringIncludes(res.body, "1");
 });
 
+const INGESTED = () =>
+  jsonResponse({
+    grabbed: [{
+      source: "https://x/01A.zip",
+      url: "https://x/01A.zip",
+      filename: "2024_01A.zip",
+      filings_stored: 42,
+      content_length: 1048576,
+      ingested_at: "2026-06-17T10:00:00",
+    }],
+    grabbed_count: 1,
+    archives: [{
+      zip_filename: "2024_01A.zip",
+      filings: 42,
+      first_year: 2024,
+      last_year: 2024,
+      first_ingested: "2026-06-17",
+      last_ingested: "2026-06-17",
+    }],
+    ingest_running: false,
+    ingest: null,
+    default_source:
+      "https://www.irs.gov/charities-non-profits/form-990-series-downloads",
+  });
+
+Deno.test("GET /upload shows the IRS-grab workflow + ingested ledger", async () => {
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    backend: { "GET /upload/ingested": INGESTED },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, "Grab from the IRS website");
+  assertStringIncludes(res.body, "What's been ingested");
+  assertStringIncludes(res.body, "2024_01A.zip");
+  assertStringIncludes(res.body, "42");
+});
+
+Deno.test("POST /upload (discover) previews archives at a URL", async () => {
+  let hit = false;
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    form: { action: "discover", url: "https://x/index.html" },
+    backend: {
+      "POST /upload/discover": () => {
+        hit = true;
+        return jsonResponse({
+          source: "https://x/index.html",
+          count: 2,
+          new: 1,
+          archives: [
+            { url: "https://x/01A.zip", filename: "01A.zip", ingested: true },
+            { url: "https://x/02A.zip", filename: "02A.zip", ingested: false },
+          ],
+        });
+      },
+      "GET /upload/ingested": INGESTED,
+    },
+  });
+  assertEquals(res.status, 200);
+  assert(hit, "backend POST /upload/discover was called");
+  assertStringIncludes(res.body, "01A.zip");
+  assertStringIncludes(res.body, "02A.zip");
+  assertStringIncludes(res.body, "ingested"); // the per-archive status flag
+});
+
+Deno.test("POST /upload (grab) starts a background ingest", async () => {
+  let hit = false;
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    form: { action: "grab", url: "https://x/01A.zip" },
+    backend: {
+      "POST /upload/grab": () => {
+        hit = true;
+        return jsonResponse({
+          status: "started",
+          source: "https://x/01A.zip",
+          note: "The API server will briefly restart to load this archive.",
+        });
+      },
+      "GET /upload/ingested": INGESTED,
+    },
+  });
+  assertEquals(res.status, 200);
+  assert(hit, "backend POST /upload/grab was called");
+  assertStringIncludes(res.body, "Ingest started");
+});
+
+Deno.test("POST /upload (grab) surfaces a soft backend error", async () => {
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    form: { action: "grab", url: "https://x/01A.zip" },
+    backend: {
+      "POST /upload/grab": () =>
+        jsonResponse({ error: "A background ingest is already running." }),
+      "GET /upload/ingested": INGESTED,
+    },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, "already running");
+});
+
 Deno.test("POST /upload (pdf) OCRs and renders the result", async () => {
   let hit = false;
   const fd = new FormData();

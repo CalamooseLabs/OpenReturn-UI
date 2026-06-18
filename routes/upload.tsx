@@ -1,8 +1,9 @@
 import { define } from "../utils.ts";
 import { page } from "fresh";
 import { ApiError, softError } from "../lib/api/mod.ts";
+import type { Api } from "../lib/api/mod.ts";
 import { Layout } from "../components/templates.tsx";
-import { Button } from "../components/atoms.tsx";
+import { Button, LinkButton } from "../components/atoms.tsx";
 import {
   Card,
   ErrorAlert,
@@ -12,7 +13,19 @@ import {
   PageHeader,
   Section,
 } from "../components/molecules.tsx";
+import {
+  GrabFromIrs,
+  IngestedArchives,
+} from "../components/organisms/IrsGrab.tsx";
+import type {
+  DiscoverResponse,
+  GrabResponse,
+  IngestedResponse,
+} from "../lib/api/upload.ts";
 import { can } from "../lib/auth.ts";
+
+const IRS_DOWNLOADS_URL =
+  "https://www.irs.gov/charities-non-profits/form-990-series-downloads";
 
 interface Data {
   /** Detailed API result, re-rendered inline (not via PRG) so it isn't lost. */
@@ -21,9 +34,32 @@ interface Data {
   kind?: string;
   /** An error from the POST attempt or a soft API failure. */
   error?: string;
+  /** The grabbed/ingested ledger (null + unreachable if the API is down). */
+  ingested?: IngestedResponse | null;
+  ingestUnreachable?: boolean;
+  /** A discover/grab outcome + the URL that produced it (to prefill the form). */
+  discovered?: DiscoverResponse;
+  grab?: GrabResponse;
+  submittedUrl?: string;
   /** Flash messages read from the query string. */
   msg?: string;
   err?: string;
+}
+
+/** Load the ingested ledger, tolerating an API that is mid-restart during an ingest. */
+async function loadIngested(
+  api: Api,
+): Promise<{ ingested: IngestedResponse | null; ingestUnreachable: boolean }> {
+  try {
+    return { ingested: await api.upload.ingested(), ingestUnreachable: false };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) throw err;
+    // status 0 = cannot reach the API (likely a restart for an in-flight ingest).
+    return {
+      ingested: null,
+      ingestUnreachable: err instanceof ApiError && err.status === 0,
+    };
+  }
 }
 
 /** Render a result object as readable key/value rows, falling back to JSON. */
@@ -43,12 +79,15 @@ function summarizeResult(
 }
 
 export const handler = define.handlers({
-  GET(ctx) {
+  async GET(ctx) {
     const sp = ctx.url.searchParams;
-    return page<Data>({
+    const base: Data = {
       msg: sp.get("msg") ?? undefined,
       err: sp.get("err") ?? undefined,
-    });
+    };
+    if (!can(ctx.state.principal, "upload:write")) return page<Data>(base);
+    const { ingested, ingestUnreachable } = await loadIngested(ctx.state.api);
+    return page<Data>({ ...base, ingested, ingestUnreachable });
   },
 
   async POST(ctx) {
@@ -58,6 +97,38 @@ export const handler = define.handlers({
     const api = ctx.state.api;
     const form = await ctx.req.formData();
     const action = String(form.get("action") ?? "");
+
+    // Discover / grab share the IRS-grab form; both re-render with the ledger.
+    if (action === "discover" || action === "grab") {
+      const url = String(form.get("url") ?? "").trim();
+      const force = form.get("force") === "1";
+      const extra: Partial<Data> = { submittedUrl: url };
+      try {
+        if (action === "discover") {
+          extra.discovered = await api.upload.discover(url);
+        } else {
+          extra.grab = await api.upload.grab(url, force);
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          return ctx.redirect("/login");
+        }
+        const message = err instanceof Error ? err.message : "Request failed.";
+        if (action === "discover") {
+          extra.discovered = {
+            source: url,
+            count: 0,
+            new: 0,
+            archives: [],
+            error: message,
+          };
+        } else {
+          extra.grab = { error: message };
+        }
+      }
+      const { ingested, ingestUnreachable } = await loadIngested(api);
+      return page<Data>({ ...extra, ingested, ingestUnreachable });
+    }
 
     if (action === "zip") {
       const file = form.get("zipfile");
@@ -196,6 +267,25 @@ export default define.page<typeof handler>((ctx) => {
       {data.result !== undefined && (
         <ResultCard result={data.result} kind={data.kind} />
       )}
+
+      <GrabFromIrs
+        defaultUrl={data.ingested?.default_source ?? IRS_DOWNLOADS_URL}
+        url={data.submittedUrl}
+        discovered={data.discovered}
+        grab={data.grab}
+        ingestRunning={data.ingested?.ingest_running ?? false}
+      />
+
+      {(data.ingested?.ingest_running || data.ingestUnreachable) && (
+        <div class="mb-6 -mt-2">
+          <LinkButton href="/upload" size="sm">Refresh status</LinkButton>
+        </div>
+      )}
+
+      <IngestedArchives
+        data={data.ingested ?? null}
+        unreachable={data.ingestUnreachable}
+      />
 
       <Section title="Upload a ZIP of 990 filings">
         <Card>

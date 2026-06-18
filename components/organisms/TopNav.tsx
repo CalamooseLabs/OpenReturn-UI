@@ -6,12 +6,35 @@ import type { Principal } from "../../lib/types.ts";
 import { can, displayName, isAdmin, isLoggedIn } from "../../lib/auth.ts";
 import { Avatar, Icon } from "../atoms.tsx";
 
-const LINKS = [
-  { href: "/", label: "Dashboard", exact: true },
-  { href: "/search", label: "Organizations" },
+interface NavLink {
+  href: string;
+  label: string;
+  exact?: boolean;
+  /** For an org-directory link, the `?type=` value it filters by. */
+  orgType?: string;
+}
+
+// Top-level links after the Organizations menu. Dashboard is rendered first,
+// then the Organizations hover-menu, then these.
+const LINKS: NavLink[] = [
   { href: "/compare", label: "Compare" },
   { href: "/reports", label: "Reports" },
   { href: "/models", label: "Models" },
+];
+
+// Organizations: a single link to the full directory, with a hover submenu that
+// splits Non-Profits vs Foundations (each a ?type= filter on /search).
+const ORG_SUBLINKS: NavLink[] = [
+  {
+    href: "/search?type=nonprofit",
+    label: "Non-Profits",
+    orgType: "nonprofit",
+  },
+  {
+    href: "/search?type=foundation",
+    label: "Foundations",
+    orgType: "foundation",
+  },
 ];
 
 const DATA_LINKS = [
@@ -26,7 +49,60 @@ function active(path: string, href: string, exact?: boolean): boolean {
   return path === href || path.startsWith(href + "/");
 }
 
-export function TopNav(props: { principal: Principal | null; path: string }) {
+/** Active state for a top link, accounting for the org-type query split. */
+function linkActive(path: string, search: string, l: NavLink): boolean {
+  if (l.orgType !== undefined) {
+    const type = new URLSearchParams(search).get("type") ?? "";
+    return path === "/search" && type === l.orgType;
+  }
+  return active(path, l.href, l.exact);
+}
+
+/** Organizations top-level link (→ full directory) + hover submenu (Non-Profits /
+ * Foundations). The `pt-3` on the panel wrapper bridges the gap so the hover
+ * survives the cursor moving from the link down into the menu. */
+function OrgMenu(props: { path: string; search: string }) {
+  const onSearch = props.path === "/search" ||
+    props.path.startsWith("/search/");
+  return (
+    <div class="group relative">
+      <a
+        href="/search"
+        class={`nav-link inline-flex items-center gap-1 ${
+          onSearch ? "nav-link-active border-b-2 border-navy pb-0.5" : ""
+        }`}
+      >
+        Organizations
+        <Icon
+          name="chevron-down"
+          size={14}
+          class="opacity-60 transition-transform group-hover:rotate-180"
+        />
+      </a>
+      <div class="invisible absolute left-0 top-full z-30 pt-3 opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
+        <div class="w-44 overflow-hidden rounded-xl border border-line bg-white p-1.5 shadow-[var(--shadow-lift)]">
+          {ORG_SUBLINKS.map((l) => (
+            <a
+              href={l.href}
+              class={`block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-fill ${
+                linkActive(props.path, props.search, l)
+                  ? "font-semibold text-navy"
+                  : "text-muted hover:text-navy"
+              }`}
+            >
+              {l.label}
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function TopNav(
+  props: { principal: Principal | null; path: string; search?: string },
+) {
+  const search = props.search ?? "";
   const dataLinks = [...DATA_LINKS];
   if (can(props.principal, "upload:write")) {
     dataLinks.push({ href: "/upload", label: "Upload" });
@@ -43,11 +119,22 @@ export function TopNav(props: { principal: Principal | null; path: string }) {
           OpenReturn
         </a>
         <div class="flex items-center gap-[22px]">
+          <a
+            href="/"
+            class={`nav-link ${
+              active(props.path, "/", true)
+                ? "nav-link-active border-b-2 border-navy pb-0.5"
+                : ""
+            }`}
+          >
+            Dashboard
+          </a>
+          <OrgMenu path={props.path} search={search} />
           {LINKS.map((l) => (
             <a
               href={l.href}
               class={`nav-link ${
-                active(props.path, l.href, l.exact)
+                linkActive(props.path, search, l)
                   ? "nav-link-active border-b-2 border-navy pb-0.5"
                   : ""
               }`}

@@ -187,7 +187,12 @@ export default define.page<typeof handler>((ctx) => {
   const hasNext = data.offset + LIMIT < data.total;
 
   return (
-    <Layout principal={state.principal} path={ctx.url.pathname} wide>
+    <Layout
+      principal={state.principal}
+      path={ctx.url.pathname}
+      search={ctx.url.search}
+      wide
+    >
       {/* Header */}
       <div class="mb-5">
         <div class="section-title">Organization Directory</div>
