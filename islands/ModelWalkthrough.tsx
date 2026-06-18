@@ -25,13 +25,6 @@ interface Props {
 const MONO = "'JetBrains Mono', ui-monospace, monospace";
 const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
 
-/** Human-readable Part-section title from the trace's source.part code. */
-const PART_TITLE: Record<string, string> = {
-  VIII: "Statement of Revenue",
-  IX: "Statement of Functional Expenses",
-  X: "Balance Sheet",
-};
-
 /** A stable per-factor key for island state. */
 function factorKey(f: DebugFactor): string {
   return `f${f.factor_id}`;
@@ -52,15 +45,15 @@ function fmtValue(v: number | null | undefined): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(4).replace(/\.?0+$/, "");
 }
 
-/** Build a "Form 990 · Part X · Line 27" citation from a variable's source. */
+/** Build a "Form 990 · Part IX · Line 25 · Col B" citation from a variable's source. */
 function citationFor(v: DebugVariable): string | null {
   const s = v.source;
   if (!s) return null;
   const parts: string[] = [];
-  parts.push(s.form ? `Form ${s.form}` : "Form 990");
-  if (s.part) parts.push(`Part ${s.part}`);
-  if (s.section) parts.push(`Section ${s.section}`);
-  if (s.line) parts.push(`Line ${s.line}`);
+  parts.push(`Form ${s.form?.code ?? "990"}`);
+  if (s.part?.number) parts.push(`Part ${s.part.number}`);
+  if (s.line?.number) parts.push(`Line ${s.line.number}`);
+  if (s.column_code) parts.push(`Col ${s.column_code}`);
   return parts.join(" · ");
 }
 
@@ -831,7 +824,7 @@ function SourceViewer(
                 color: "#192A54",
               }}
             >
-              {src?.form ? `Form ${src.form}` : "Form 990"}
+              {`Form ${src?.form?.code ?? "990"}`}
             </span>
             {v?.canonical_source && (
               <span
@@ -844,8 +837,10 @@ function SourceViewer(
           <div
             style={{ fontSize: "11.5px", color: "#5a6172", marginTop: "3px" }}
           >
-            {src?.part
-              ? `Part ${src.part} · ${PART_TITLE[src.part] ?? "Form 990"}`
+            {src?.part?.number
+              ? `Part ${src.part.number}${
+                src.part.name ? ` · ${src.part.name}` : ""
+              }`
               : (isConcept ? "Schema location pending" : "Computed input")}
           </div>
         </div>
@@ -865,15 +860,16 @@ function SourceViewer(
                   }}
                 >
                   <SrcRow label="Concept" value={v?.concept ?? v?.key ?? "—"} />
-                  {src?.section && (
-                    <SrcRow label="Section" value={src.section} />
+                  {src?.box_label && (
+                    <SrcRow label="Field" value={src.box_label} />
                   )}
-                  {(src?.part || src?.line) && (
+                  {(src?.part?.number || src?.line?.number) && (
                     <SrcRow
                       label="Location"
                       value={[
-                        src?.part ? `Part ${src.part}` : null,
-                        src?.line ? `Line ${src.line}` : null,
+                        src?.part?.number ? `Part ${src.part.number}` : null,
+                        src?.line?.number ? `Line ${src.line.number}` : null,
+                        src?.column_code ? `Col ${src.column_code}` : null,
                       ].filter(Boolean).join(" · ") || "—"}
                     />
                   )}
@@ -986,9 +982,9 @@ function SourceViewer(
           >
             {[
               props.year ? `Filing ${props.year}` : null,
-              src?.part ? `Part ${src.part}` : null,
-              src?.section ? `Section ${src.section}` : null,
-              src?.line ? `Line ${src.line}` : null,
+              src?.part?.number ? `Part ${src.part.number}` : null,
+              src?.line?.number ? `Line ${src.line.number}` : null,
+              src?.column_code ? `Col ${src.column_code}` : null,
             ]
               .filter((c): c is string => Boolean(c))
               .map((c, i, arr) => (

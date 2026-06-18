@@ -72,13 +72,18 @@ export interface DebugVariable {
   value?: number | null;
   raw_value?: string | number | null;
   present?: boolean;
-  /** Schema location of a 990-derived concept (form / part / section / line). */
+  /** Schema location of a 990-derived concept (form / part / section / line / col). */
   source?: {
-    form?: string;
-    part?: string;
-    section?: string;
-    line?: string;
+    field_id?: number;
     xml_path?: string;
+    sub_letter?: string | null;
+    column_code?: string | null;
+    box_label?: string | null;
+    data_type?: string;
+    line?: { number?: string; label?: string; data_type?: string } | null;
+    section?: { code?: string; name?: string | null } | null;
+    part?: { number?: string; name?: string } | null;
+    form?: { code?: string; name?: string } | null;
   } | null;
   canonical_source?: string | null;
   confidence?: number | null;
