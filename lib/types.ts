@@ -95,6 +95,8 @@ export interface ScoreRow {
   total_score: number;
   scored_at?: string;
   imputed: boolean;
+  model_type?: string | null;
+  model_kind?: string | null;
 }
 
 export interface LeaderboardRow {

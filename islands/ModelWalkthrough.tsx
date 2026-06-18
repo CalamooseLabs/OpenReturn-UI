@@ -3,331 +3,73 @@
 // traces a factor from its sub-score → metric → formula → the exact Form 990
 // line each input was sourced from.
 //
-// Ported from the design comp's React-class component (state = { feature, lineId })
-// to a Preact island (useState). Real factor data (name / weight / formula /
-// inputs / benchmark) comes from the API via props; the per-input Form 990
-// Part / Line / Col / page / confidence are NOT exposed by our API yet, so they
-// are rendered as faithful SAMPLE values and marked with a provenance TODO.
+// Wired to GET /scores/debug (via the route): every value, formula, citation,
+// canonical source and confidence here is REAL trace data for an example org —
+// nothing is invented. The route passes the DebugTrace.factors as props; we
+// fall back to "(not available)" only where the trace itself has no source.
 
 import { useState } from "preact/hooks";
-import { scoreBand } from "../lib/score.ts";
-
-/** One factor, parsed by the route from the API's /scores/factors payload. */
-export interface WalkFactor {
-  key: string;
-  name: string;
-  weight: number;
-  formulaType: string | null;
-  formulaDescription: string | null;
-  direction: string | null;
-  benchmarkLo: number | null;
-  benchmarkHi: number | null;
-  /** Concept-code input tokens (parsed from the factor's inputs JSON). */
-  inputs: string[];
-}
+import { scoreBand, to100 } from "../lib/score.ts";
+import { money } from "../lib/format.ts";
+import type { DebugFactor, DebugVariable } from "../lib/api/scores.ts";
 
 interface Props {
-  factors: WalkFactor[];
-  /** A representative score 0–100 used to colour the bands (sample). */
-  sampleScore?: number;
+  /** Factor traces straight from GET /scores/debug for the example org. */
+  factors: DebugFactor[];
+  /** The example org traced (for context labels). */
+  exampleName?: string | null;
+  /** The example org's filing year. */
+  exampleYear?: number | null;
 }
 
-/* ── Sample provenance lookup ──────────────────────────────────────────────
- * Our API does not expose the originating Form 990 Part / Line / Col / page /
- * confidence for a concept code, so we map the common scoring concepts to a
- * plausible citation here. These Part/Line/Col/page/confidence values are
- * SAMPLE and must be replaced once a provenance API exists.
- * TODO: provenance API — replace SAMPLE Part/Line/Col/page/confidence. */
-interface SampleLine {
-  variable: string;
-  value: string;
-  filing: string;
-  part: string;
-  line: string;
-  col: string;
-  page: string;
-  conf: string;
-}
+const MONO = "'JetBrains Mono', ui-monospace, monospace";
+const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
 
-const SAMPLE_LINES: Record<string, SampleLine> = {
-  // Balance sheet (Part X)
-  equity: {
-    variable: "Net Assets without Donor Restrictions",
-    value: "$1,840,000",
-    filing: "2024",
-    part: "X",
-    line: "27",
-    col: "EOY",
-    page: "p. 11",
-    conf: "99.6%",
-  },
-  assets: {
-    variable: "Total assets",
-    value: "$1,860,300",
-    filing: "2024",
-    part: "X",
-    line: "16",
-    col: "EOY",
-    page: "p. 11",
-    conf: "99.7%",
-  },
-  liabilities: {
-    variable: "Total liabilities",
-    value: "$74,300",
-    filing: "2024",
-    part: "X",
-    line: "26",
-    col: "EOY",
-    page: "p. 11",
-    conf: "99.5%",
-  },
-  net_assets: {
-    variable: "Total net assets or fund balances",
-    value: "$1,786,000",
-    filing: "2024",
-    part: "X",
-    line: "33",
-    col: "EOY",
-    page: "p. 11",
-    conf: "99.6%",
-  },
-  // Functional expenses (Part IX)
-  total_exp: {
-    variable: "Total Functional Expenses",
-    value: "$1,461,000",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "A",
-    page: "p. 10",
-    conf: "99.8%",
-  },
-  cy_exp: {
-    variable: "Total Functional Expenses",
-    value: "$1,461,000",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "A",
-    page: "p. 10",
-    conf: "99.8%",
-  },
-  prog: {
-    variable: "Program Service Expenses",
-    value: "$1,180,000",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "B",
-    page: "p. 10",
-    conf: "99.7%",
-  },
-  prog_exp: {
-    variable: "Program Service Expenses",
-    value: "$1,180,000",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "B",
-    page: "p. 10",
-    conf: "99.7%",
-  },
-  mgmt_exp: {
-    variable: "Management & General Expenses",
-    value: "$183,000",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "C",
-    page: "p. 10",
-    conf: "99.4%",
-  },
-  fund_exp: {
-    variable: "Fundraising Expenses",
-    value: "$98,000",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "D",
-    page: "p. 10",
-    conf: "99.4%",
-  },
-  // Revenue (Part VIII)
-  cy_rev: {
-    variable: "Total Revenue (current year)",
-    value: "$1,287,000",
-    filing: "2024",
-    part: "VIII",
-    line: "12",
-    col: "A",
-    page: "p. 9",
-    conf: "99.5%",
-  },
-  total_rev: {
-    variable: "Total Revenue",
-    value: "$1,287,000",
-    filing: "2024",
-    part: "VIII",
-    line: "12",
-    col: "A",
-    page: "p. 9",
-    conf: "99.5%",
-  },
-  contrib: {
-    variable: "Total Contributions & Grants",
-    value: "$1,201,000",
-    filing: "2024",
-    part: "VIII",
-    line: "1h",
-    col: "A",
-    page: "p. 9",
-    conf: "99.6%",
-  },
-  gov_grants: {
-    variable: "Government grants (contributions)",
-    value: "$19,000",
-    filing: "2024",
-    part: "VIII",
-    line: "1e",
-    col: "A",
-    page: "p. 9",
-    conf: "98.9%",
-  },
-};
-
+/** Human-readable Part-section title from the trace's source.part code. */
 const PART_TITLE: Record<string, string> = {
   VIII: "Statement of Revenue",
   IX: "Statement of Functional Expenses",
   X: "Balance Sheet",
 };
 
-/** Fall back to a generic citation for an unmapped concept token. */
-function lineFor(token: string): SampleLine {
-  return SAMPLE_LINES[token] ?? {
-    variable: token,
-    value: "—",
-    filing: "2024",
-    part: "IX",
-    line: "25",
-    col: "A",
-    page: "p. 10",
-    conf: "99.0%",
-  };
+/** A stable per-factor key for island state. */
+function factorKey(f: DebugFactor): string {
+  return `f${f.factor_id}`;
 }
 
-/* ── Sample facsimile tables (per Part) — SAMPLE.
- * TODO: provenance API — replace with the real extracted filing rows. */
-interface FacRow {
-  line: string;
-  desc: string;
-  cells: string[];
-  total?: boolean;
-}
-interface Facsimile {
-  cols: string[];
-  colKeys: string[];
-  rows: FacRow[];
+/** A stable per-variable key for island state. */
+function variableKey(v: DebugVariable, i: number): string {
+  return `${v.key}#${i}`;
 }
 
-function facsimile(part: string): Facsimile {
-  if (part === "IX") {
-    return {
-      cols: ["(A) Total", "(B) Program", "(C) Mgmt", "(D) Fundraising"],
-      colKeys: ["A", "B", "C", "D"],
-      rows: [
-        {
-          line: "5",
-          desc: "Compensation of officers & key employees",
-          cells: ["412,300", "288,610", "82,460", "41,230"],
-        },
-        {
-          line: "7",
-          desc: "Other salaries and wages",
-          cells: ["468,900", "375,120", "46,890", "46,890"],
-        },
-        {
-          line: "11",
-          desc: "Fees for services (legal, accounting)",
-          cells: ["96,400", "72,300", "19,280", "4,820"],
-        },
-        {
-          line: "13",
-          desc: "Office expenses",
-          cells: ["88,200", "61,740", "17,640", "8,820"],
-        },
-        {
-          line: "24",
-          desc: "Other expenses",
-          cells: ["395,200", "382,230", "16,730", "−4,760"],
-        },
-        {
-          line: "25",
-          desc: "Total functional expenses",
-          total: true,
-          cells: ["1,461,000", "1,180,000", "183,000", "98,000"],
-        },
-      ],
-    };
-  }
-  if (part === "X") {
-    return {
-      cols: ["(A) Beg. of year", "(B) End of year"],
-      colKeys: ["BOY", "EOY"],
-      rows: [
-        { line: "16", desc: "Total assets", cells: ["1,704,000", "1,860,300"] },
-        { line: "26", desc: "Total liabilities", cells: ["68,900", "74,300"] },
-        {
-          line: "27",
-          desc: "Net assets without donor restrictions",
-          cells: ["1,556,200", "1,840,000"],
-        },
-        {
-          line: "28",
-          desc: "Net assets with donor restrictions",
-          cells: ["78,900", "(54,000)"],
-        },
-        {
-          line: "33",
-          desc: "Total net assets or fund balances",
-          total: true,
-          cells: ["1,635,100", "1,786,000"],
-        },
-      ],
-    };
-  }
-  // VIII — Statement of Revenue
-  return {
-    cols: ["Amount"],
-    colKeys: ["A"],
-    rows: [
-      {
-        line: "1e",
-        desc: "Government grants (contributions)",
-        cells: ["19,000"],
-      },
-      {
-        line: "1f",
-        desc: "All other contributions & gifts",
-        cells: ["1,182,000"],
-      },
-      {
-        line: "1h",
-        desc: "Total contributions. Add 1a–1g",
-        total: true,
-        cells: ["1,201,000"],
-      },
-      {
-        line: "8a",
-        desc: "Gross income from fundraising events",
-        cells: ["64,500"],
-      },
-      { line: "12", desc: "Total revenue", total: true, cells: ["1,287,000"] },
-    ],
-  };
+/** Format a numeric trace value as currency when it looks like a dollar amount,
+ * else a plain number; "—" when absent. */
+function fmtValue(v: number | null | undefined): string {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  // Amounts in 990 financials are large integers; ratios are small fractions.
+  if (Math.abs(v) >= 1000) return money(v);
+  // Keep small numbers readable (ratios / counts) without currency styling.
+  return Number.isInteger(v) ? String(v) : v.toFixed(4).replace(/\.?0+$/, "");
 }
 
-const MONO = "'JetBrains Mono', ui-monospace, monospace";
-const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
+/** Build a "Form 990 · Part X · Line 27" citation from a variable's source. */
+function citationFor(v: DebugVariable): string | null {
+  const s = v.source;
+  if (!s) return null;
+  const parts: string[] = [];
+  parts.push(s.form ? `Form ${s.form}` : "Form 990");
+  if (s.part) parts.push(`Part ${s.part}`);
+  if (s.section) parts.push(`Section ${s.section}`);
+  if (s.line) parts.push(`Line ${s.line}`);
+  return parts.join(" · ");
+}
+
+/** Confidence 0–1 (or 0–100) → a "99.6%" string, or null. */
+function confLabel(conf: number | null | undefined): string | null {
+  if (conf === null || conf === undefined || isNaN(conf)) return null;
+  const pct = conf <= 1.0001 ? conf * 100 : conf;
+  return `${pct.toFixed(1)}%`;
+}
 
 /** A small vertical connector with a labelled chip + down-arrow. */
 function Connector(props: { label: string }) {
@@ -372,10 +114,22 @@ function Connector(props: { label: string }) {
 
 export default function ModelWalkthrough(props: Props) {
   const factors = props.factors;
-  const [factorKey, setFactorKey] = useState(factors[0]?.key ?? "");
-  const feat = factors.find((f) => f.key === factorKey) ?? factors[0];
+  const [factorK, setFactorK] = useState(
+    factors[0] ? factorKey(factors[0]) : "",
+  );
+  const feat = factors.find((f) => factorKey(f) === factorK) ?? factors[0];
 
-  const [lineId, setLineId] = useState<string>(feat?.inputs[0] ?? "");
+  // The concept variables are the ones with a 990 source to inspect; default to
+  // the first concept variable (else the first variable).
+  const firstInspectable = (f: DebugFactor | undefined): string => {
+    if (!f) return "";
+    const idx = f.variables.findIndex((v) => v.kind === "concept");
+    const i = idx >= 0 ? idx : 0;
+    const v = f.variables[i];
+    return v ? variableKey(v, i) : "";
+  };
+
+  const [varK, setVarK] = useState<string>(firstInspectable(feat));
 
   if (!feat) {
     return (
@@ -387,36 +141,25 @@ export default function ModelWalkthrough(props: Props) {
     );
   }
 
-  // Sample sub-score for the selected factor (we have no per-org sub-score on
-  // this page) — derived from the model-level sample score, weighted.
-  // TODO: provenance API — surface the real per-factor sub-score for an org.
-  const sampleScore = props.sampleScore ?? 73;
-  const pct = Math.max(
-    0,
-    Math.min(100, Math.round(sampleScore + (feat.weight - 0.25) * 40)),
-  );
-  const band = scoreBand(pct).hex;
-
-  // Switch factor → reset to its first source line.
+  // Switch factor → reset to its first inspectable variable.
   const selectFactor = (k: string) => {
-    const f = factors.find((x) => x.key === k);
-    setFactorKey(k);
-    setLineId(f?.inputs[0] ?? "");
+    const f = factors.find((x) => factorKey(x) === k);
+    setFactorK(k);
+    setVarK(firstInspectable(f));
   };
 
-  const sel = lineFor(lineId || feat.inputs[0] || "");
-  const num = feat.inputs[0] ? lineFor(feat.inputs[0]) : sel;
-  const den = feat.inputs[1] ? lineFor(feat.inputs[1]) : undefined;
-  const fac = facsimile(sel.part);
+  // Selected variable (real trace record).
+  const selVar = feat.variables.find((v, i) => variableKey(v, i) === varK) ??
+    feat.variables[0];
 
-  const benchLabel = (() => {
-    const lo = feat.benchmarkLo;
-    const hi = feat.benchmarkHi;
-    if (lo == null && hi == null) return null;
-    if (lo == null) return `up to ${hi}`;
-    if (hi == null) return `${lo}+`;
-    return `${lo} → ${hi}`;
-  })();
+  // Per-factor sub-score (REAL normalized 0–1 → 0–100).
+  const pct = to100(feat.normalized);
+  const band = pct !== null ? scoreBand(pct).hex : "#8893ab";
+
+  // The factor's numerator/denominator variables, for the formula fraction.
+  const conceptVars = feat.variables.filter((v) => v.kind === "concept");
+  const num = conceptVars[0] ?? feat.variables[0];
+  const den = conceptVars[1];
 
   /* ── Left rail: factor selector ─────────────────────────────────────── */
   const rail = (
@@ -442,16 +185,14 @@ export default function ModelWalkthrough(props: Props) {
         Features
       </div>
       {factors.map((f) => {
-        const active = f.key === factorKey;
-        const p = Math.max(
-          0,
-          Math.min(100, Math.round(sampleScore + (f.weight - 0.25) * 40)),
-        );
+        const k = factorKey(f);
+        const active = k === factorK;
+        const p = to100(f.normalized) ?? 0;
         const b = scoreBand(p).hex;
         return (
           <button
             type="button"
-            onClick={() => selectFactor(f.key)}
+            onClick={() => selectFactor(k)}
             style={{
               textAlign: "left",
               border: active ? "1px solid #c4d2ec" : "1px solid transparent",
@@ -495,7 +236,7 @@ export default function ModelWalkthrough(props: Props) {
                 {(f.weight * 100).toFixed(0)}%
               </span>
             </div>
-            {/* mini BandBar */}
+            {/* mini band bar from the REAL normalized sub-score */}
             <div
               style={{
                 height: "5px",
@@ -520,13 +261,80 @@ export default function ModelWalkthrough(props: Props) {
   );
 
   /* ── Middle: lineage chain ──────────────────────────────────────────── */
-  const sourceCard = (id: string) => {
-    const ln = lineFor(id);
-    const active = id === lineId;
+  /** A source-variable card (one per trace variable). */
+  const variableCard = (v: DebugVariable, i: number) => {
+    const k = variableKey(v, i);
+    const active = k === varK;
+    const isConcept = v.kind === "concept";
+    const cite = citationFor(v);
+    const label = v.concept ?? v.key;
+    const valStr = isConcept
+      ? fmtValue(v.value)
+      : (v.kind === "literal" ? String(v.raw_value ?? v.value ?? "") : "");
+
+    // Non-concept (factor/model/literal) variables render compactly.
+    if (!isConcept) {
+      return (
+        <button
+          type="button"
+          onClick={() => setVarK(k)}
+          style={{
+            textAlign: "left",
+            width: "100%",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            background: active ? "#fff" : "#fafbfd",
+            border: active ? "1.5px solid #3a5da8" : "1px solid #e2e7f0",
+            borderRadius: "12px",
+            padding: "10px 14px",
+            transition: "all .12s",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "8px",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: "10px",
+                letterSpacing: ".06em",
+                textTransform: "uppercase",
+                color: "#8893ab",
+                background: "#f3f5f9",
+                borderRadius: "5px",
+                padding: "2px 7px",
+              }}
+            >
+              {v.kind}
+            </span>
+            <span style={{ fontSize: "12.5px", color: "#3a4150", flex: 1 }}>
+              {label}
+            </span>
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: "12.5px",
+                fontWeight: 700,
+                color: "#192A54",
+                flexShrink: 0,
+              }}
+            >
+              {valStr || fmtValue(v.value)}
+            </span>
+          </div>
+        </button>
+      );
+    }
+
     return (
       <button
         type="button"
-        onClick={() => setLineId(id)}
+        onClick={() => setVarK(k)}
         style={{
           textAlign: "left",
           width: "100%",
@@ -550,18 +358,18 @@ export default function ModelWalkthrough(props: Props) {
           }}
         >
           <span style={{ fontSize: "13px", fontWeight: 600, color: "#192A54" }}>
-            {ln.variable}
+            {label}
           </span>
           <span
             style={{
               fontFamily: MONO,
               fontSize: "14px",
               fontWeight: 700,
-              color: "#192A54",
+              color: v.present === false ? "#aeb6c7" : "#192A54",
               flexShrink: 0,
             }}
           >
-            {ln.value}
+            {valStr}
           </span>
         </div>
         <div
@@ -572,7 +380,7 @@ export default function ModelWalkthrough(props: Props) {
             flexWrap: "wrap",
           }}
         >
-          {/* SAMPLE citation — TODO: provenance API */}
+          {/* REAL citation from the trace (else the xml_path, else key) */}
           <span
             style={{
               fontFamily: MONO,
@@ -583,13 +391,22 @@ export default function ModelWalkthrough(props: Props) {
               padding: "2px 7px",
             }}
           >
-            Form 990 · Part {ln.part} · Line {ln.line}
+            {cite ?? v.source?.xml_path ?? v.xml_path ?? v.key}
           </span>
-          <span
-            style={{ fontFamily: MONO, fontSize: "10px", color: "#aeb6c7" }}
-          >
-            {id}
-          </span>
+          {v.conflict && (
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: "10px",
+                color: "#9a6a1c",
+                background: "#f6ecd8",
+                borderRadius: "5px",
+                padding: "2px 7px",
+              }}
+            >
+              conflict
+            </span>
+          )}
           {active
             ? (
               <span
@@ -613,9 +430,11 @@ export default function ModelWalkthrough(props: Props) {
     );
   };
 
+  const benchLabel = feat.normalization ?? null;
+
   const chain = (
     <div style={{ padding: "22px" }}>
-      {/* stage 1: sub-score */}
+      {/* stage 1: sub-score (REAL normalized × weight) */}
       <div
         style={{
           background: "#192A54",
@@ -669,7 +488,7 @@ export default function ModelWalkthrough(props: Props) {
             {feat.name}
           </span>
           <div style={{ display: "flex", alignItems: "flex-end", gap: "4px" }}>
-            {/* SAMPLE sub-score — TODO: provenance API */}
+            {/* REAL normalized sub-score (0–100) */}
             <span
               style={{
                 fontFamily: DISPLAY,
@@ -679,7 +498,7 @@ export default function ModelWalkthrough(props: Props) {
                 letterSpacing: "-0.02em",
               }}
             >
-              {pct}
+              {pct ?? "—"}
             </span>
             <span
               style={{
@@ -717,22 +536,24 @@ export default function ModelWalkthrough(props: Props) {
           <span
             style={{ fontSize: "13.5px", fontWeight: 600, color: "#192A54" }}
           >
-            {feat.formulaType ? feat.formulaType.replace(/_/g, " ") : "Metric"}
+            {feat.formula_type
+              ? feat.formula_type.replace(/_/g, " ")
+              : "Metric"}
           </span>
-          <span
-            style={{
-              fontFamily: MONO,
-              fontSize: "11px",
-              color: "#5a6172",
-              background: "#eef1f6",
-              borderRadius: "5px",
-              padding: "2px 8px",
-            }}
-          >
-            {feat.direction
-              ? `${feat.direction} is better`
-              : "higher is better"}
-          </span>
+          {benchLabel && (
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: "11px",
+                color: "#5a6172",
+                background: "#eef1f6",
+                borderRadius: "5px",
+                padding: "2px 8px",
+              }}
+            >
+              {benchLabel}
+            </span>
+          )}
         </div>
         <p
           style={{
@@ -743,14 +564,14 @@ export default function ModelWalkthrough(props: Props) {
             textWrap: "pretty",
           }}
         >
-          {feat.formulaDescription ??
+          {feat.formula_description ??
             "Computed from the inputs below and normalized against the model's benchmark range."}
         </p>
       </div>
 
       <Connector label="using formula" />
 
-      {/* stage 3: formula */}
+      {/* stage 3: formula (REAL formula string + raw value) */}
       <div
         style={{
           background: "#fff",
@@ -780,9 +601,26 @@ export default function ModelWalkthrough(props: Props) {
             flexWrap: "wrap",
           }}
         >
-          {den
+          {feat.formula
             ? (
-              // fraction (ratio-style)
+              <code
+                style={{
+                  fontFamily: MONO,
+                  fontSize: "13px",
+                  color: "#3a4150",
+                  fontWeight: 600,
+                  background: "#f7f9fc",
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  maxWidth: "100%",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {feat.formula}
+              </code>
+            )
+            : den
+            ? (
               <div
                 style={{
                   display: "flex",
@@ -798,7 +636,7 @@ export default function ModelWalkthrough(props: Props) {
                     fontWeight: 600,
                   }}
                 >
-                  {num.variable}
+                  {num?.concept ?? num?.key}
                 </span>
                 <div
                   style={{
@@ -815,7 +653,7 @@ export default function ModelWalkthrough(props: Props) {
                     fontWeight: 600,
                   }}
                 >
-                  {den.variable}
+                  {den.concept ?? den.key}
                 </span>
               </div>
             )
@@ -823,7 +661,7 @@ export default function ModelWalkthrough(props: Props) {
               <span
                 style={{ fontSize: "13px", color: "#3a4150", fontWeight: 600 }}
               >
-                {num.variable}
+                {num?.concept ?? num?.key ?? feat.name}
               </span>
             )}
           <span
@@ -837,7 +675,7 @@ export default function ModelWalkthrough(props: Props) {
             →
           </span>
           <div style={{ textAlign: "center" }}>
-            {/* SAMPLE result — TODO: provenance API */}
+            {/* REAL raw value → normalized score */}
             <div
               style={{
                 fontFamily: DISPLAY,
@@ -847,7 +685,7 @@ export default function ModelWalkthrough(props: Props) {
                 color: band,
               }}
             >
-              {pct} / 100
+              {pct ?? "—"} / 100
             </div>
             <div
               style={{
@@ -857,43 +695,66 @@ export default function ModelWalkthrough(props: Props) {
                 fontFamily: MONO,
               }}
             >
-              {benchLabel
-                ? `benchmark ${benchLabel}`
-                : (feat.formulaType ?? "normalized score")}
+              {feat.raw_value !== null
+                ? `raw ${fmtValue(feat.raw_value)}`
+                : (feat.formula_type ?? "normalized score")}
             </div>
           </div>
         </div>
       </div>
 
       <Connector
-        label={`sourced from ${feat.inputs.length} input${
-          feat.inputs.length === 1 ? "" : "s"
+        label={`sourced from ${feat.variables.length} variable${
+          feat.variables.length === 1 ? "" : "s"
         }`}
       />
 
-      {/* stage 4: source items */}
+      {/* stage 4: source variables (REAL trace variables) */}
       <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
-        {feat.inputs.length ? feat.inputs.map((id) => sourceCard(id)) : (
-          <div
-            style={{
-              fontSize: "12.5px",
-              color: "#8893ab",
-              fontStyle: "italic",
-              padding: "8px 2px",
-            }}
-          >
-            This factor declares no field inputs.
-          </div>
-        )}
+        {feat.variables.length
+          ? feat.variables.map((v, i) => variableCard(v, i))
+          : (
+            <div
+              style={{
+                fontSize: "12.5px",
+                color: "#8893ab",
+                fontStyle: "italic",
+                padding: "8px 2px",
+              }}
+            >
+              This factor declares no inputs.
+            </div>
+          )}
       </div>
     </div>
   );
 
-  /* ── Right: Form 990 facsimile viewer ───────────────────────────────── */
-  const gridCols = `34px 1fr ${
-    fac.colKeys.map(() => "minmax(74px,auto)").join(" ")
-  }`;
-  const viewer = (
+  /* ── Right: 990 source viewer (REAL provenance, no facsimile) ────────── */
+  const viewer = <SourceViewer variable={selVar} year={props.exampleYear} />;
+
+  return (
+    <div
+      class="or-walkthrough"
+      style={{ display: "grid", gridTemplateColumns: "236px 1fr 1.02fr" }}
+    >
+      {rail}
+      {chain}
+      {viewer}
+    </div>
+  );
+}
+
+/** Right column: a faithful panel of the selected variable's REAL 990 source. */
+function SourceViewer(
+  props: { variable: DebugVariable | undefined; year?: number | null },
+) {
+  const v = props.variable;
+  const isConcept = v?.kind === "concept";
+  const src = v?.source ?? null;
+  const cite = v ? citationFor(v) : null;
+  const conf = confLabel(v?.confidence);
+
+  return (
     <div
       style={{
         background: "#fbfcfe",
@@ -923,22 +784,23 @@ export default function ModelWalkthrough(props: Props) {
         >
           Source Document
         </span>
-        {/* SAMPLE page — TODO: provenance API */}
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: "10.5px",
-            color: "#8893ab",
-            background: "#eef1f6",
-            borderRadius: "5px",
-            padding: "2px 8px",
-          }}
-        >
-          {sel.page}
-        </span>
+        {props.year && (
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: "10.5px",
+              color: "#8893ab",
+              background: "#eef1f6",
+              borderRadius: "5px",
+              padding: "2px 8px",
+            }}
+          >
+            Tax year {props.year}
+          </span>
+        )}
       </div>
 
-      {/* form facsimile card */}
+      {/* form source card */}
       <div
         style={{
           background: "#fff",
@@ -969,276 +831,286 @@ export default function ModelWalkthrough(props: Props) {
                 color: "#192A54",
               }}
             >
-              Form 990
+              {src?.form ? `Form ${src.form}` : "Form 990"}
             </span>
-            <span
-              style={{ fontFamily: MONO, fontSize: "11px", color: "#8893ab" }}
-            >
-              Tax year {sel.filing}
-            </span>
+            {v?.canonical_source && (
+              <span
+                style={{ fontFamily: MONO, fontSize: "11px", color: "#8893ab" }}
+              >
+                {v.canonical_source}
+              </span>
+            )}
           </div>
           <div
             style={{ fontSize: "11.5px", color: "#5a6172", marginTop: "3px" }}
           >
-            Part {sel.part} · {PART_TITLE[sel.part] ?? "Form 990"}
+            {src?.part
+              ? `Part ${src.part} · ${PART_TITLE[src.part] ?? "Form 990"}`
+              : (isConcept ? "Schema location pending" : "Computed input")}
           </div>
         </div>
-        <div style={{ padding: "14px 16px" }}>
-          <div
-            style={{ display: "grid", gridTemplateColumns: gridCols, gap: 0 }}
-          >
-            <div
-              style={{
-                fontFamily: MONO,
-                fontSize: "9.5px",
-                color: "#aeb6c7",
-                padding: "0 0 8px",
-              }}
-            >
-              Ln
-            </div>
-            <div
-              style={{
-                fontSize: "10px",
-                color: "#aeb6c7",
-                padding: "0 0 8px",
-                fontFamily: MONO,
-              }}
-            >
-              Description
-            </div>
-            {fac.cols.map((c) => (
+
+        {/* the located line/value */}
+        <div style={{ padding: "16px" }}>
+          {isConcept && (src || v?.xml_path)
+            ? (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto 1fr",
+                    rowGap: "9px",
+                    columnGap: "16px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <SrcRow label="Concept" value={v?.concept ?? v?.key ?? "—"} />
+                  {src?.section && (
+                    <SrcRow label="Section" value={src.section} />
+                  )}
+                  {(src?.part || src?.line) && (
+                    <SrcRow
+                      label="Location"
+                      value={[
+                        src?.part ? `Part ${src.part}` : null,
+                        src?.line ? `Line ${src.line}` : null,
+                      ].filter(Boolean).join(" · ") || "—"}
+                    />
+                  )}
+                  <SrcRow
+                    label="XPath"
+                    value={src?.xml_path ?? v?.xml_path ?? "—"}
+                    mono
+                  />
+                </div>
+                {/* located value */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "10px",
+                    padding: "12px 14px",
+                    background: v?.present === false ? "#f3f5f9" : "#eef6f1",
+                    border: `1px solid ${
+                      v?.present === false ? "#e2e7f0" : "#cfe6da"
+                    }`,
+                    borderRadius: "10px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12.5px",
+                      color: v?.present === false ? "#8893ab" : "#3f6b56",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {v?.present === false ? "Not reported" : "Reported value"}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: "15px",
+                      fontWeight: 700,
+                      color: v?.present === false ? "#aeb6c7" : "#245f45",
+                    }}
+                  >
+                    {fmtValue(v?.value)}
+                  </span>
+                </div>
+              </>
+            )
+            : (
               <div
                 style={{
-                  fontSize: "9.5px",
-                  color: "#aeb6c7",
-                  padding: "0 0 8px",
-                  textAlign: "right",
-                  fontFamily: MONO,
+                  fontSize: "12.5px",
+                  color: "#8893ab",
+                  lineHeight: "1.6",
                 }}
               >
-                {c}
+                {v
+                  ? (
+                    <>
+                      <span style={{ fontWeight: 600, color: "#5a6172" }}>
+                        {v.kind === "literal"
+                          ? "Literal constant"
+                          : v.kind === "factor"
+                          ? "Derived from another factor"
+                          : v.kind === "model"
+                          ? "Derived from a child model"
+                          : "Source"}
+                      </span>{" "}
+                      — {v.concept ?? v.key}: {fmtValue(v.value)}
+                      <br />
+                      <span style={{ color: "#aeb6c7" }}>
+                        (not available) — no Form 990 line backs this input.
+                      </span>
+                    </>
+                  )
+                  : "Select a variable to view its source."}
               </div>
-            ))}
-            {fac.rows.map((row) => {
-              const isLine = row.line === sel.line;
-              return (
+            )}
+        </div>
+      </div>
+
+      {/* provenance trail (REAL crumbs from the trace) */}
+      {isConcept && cite && (
+        <div
+          style={{
+            background: "#fff",
+            border: "1px solid #e2e7f0",
+            borderRadius: "12px",
+            padding: "15px 16px",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: MONO,
+              fontSize: "10px",
+              letterSpacing: ".12em",
+              textTransform: "uppercase",
+              color: "#aeb6c7",
+              marginBottom: "12px",
+            }}
+          >
+            Provenance trail
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "6px",
+              marginBottom: conf || v?.canonical_source ? "14px" : "0",
+            }}
+          >
+            {[
+              props.year ? `Filing ${props.year}` : null,
+              src?.part ? `Part ${src.part}` : null,
+              src?.section ? `Section ${src.section}` : null,
+              src?.line ? `Line ${src.line}` : null,
+            ]
+              .filter((c): c is string => Boolean(c))
+              .map((c, i, arr) => (
                 <>
-                  <div
+                  <span
                     style={{
                       fontFamily: MONO,
                       fontSize: "11px",
-                      color: isLine ? "#192A54" : "#9aa3b5",
-                      fontWeight: isLine ? 700 : 400,
-                      padding: "8px 0",
-                      borderTop: "1px solid #f0f2f7",
-                      background: isLine ? "#eef2fa" : "transparent",
+                      color: "#2f4a85",
+                      background: "#eef2fa",
+                      borderRadius: "6px",
+                      padding: "4px 9px",
                     }}
                   >
-                    {row.line}
+                    {c}
+                  </span>
+                  {i < arr.length - 1 && (
+                    <span style={{ color: "#cfd9e8", fontSize: "11px" }}>
+                      →
+                    </span>
+                  )}
+                </>
+              ))}
+          </div>
+          {(conf || v?.canonical_source || v?.conflict) && (
+            <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+              {v?.canonical_source && (
+                <div>
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "#9aa3b5",
+                      marginBottom: "3px",
+                    }}
+                  >
+                    Canonical source
                   </div>
                   <div
                     style={{
-                      fontSize: "11.5px",
-                      color: isLine ? "#192A54" : "#5a6172",
-                      fontWeight: row.total ? 700 : (isLine ? 600 : 400),
-                      padding: "8px 8px 8px 0",
-                      borderTop: "1px solid #f0f2f7",
-                      background: isLine ? "#eef2fa" : "transparent",
+                      fontSize: "12px",
+                      color: "#3a4150",
+                      fontWeight: 600,
                     }}
                   >
-                    {row.desc}
+                    {v.canonical_source}
                   </div>
-                  {row.cells.map((cell, ci) => {
-                    const isCell = isLine && fac.colKeys[ci] === sel.col;
-                    return (
-                      <div
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: "11.5px",
-                          textAlign: "right",
-                          padding: "8px 4px",
-                          borderTop: "1px solid #f0f2f7",
-                          color: isCell
-                            ? "#fff"
-                            : (isLine ? "#192A54" : "#7a8398"),
-                          fontWeight: isCell || row.total ? 700 : 400,
-                          background: isCell
-                            ? "#3a5da8"
-                            : (isLine ? "#eef2fa" : "transparent"),
-                          borderRadius: isCell ? "5px" : "0",
-                        }}
-                      >
-                        {cell}
-                      </div>
-                    );
-                  })}
-                </>
-              );
-            })}
-          </div>
+                </div>
+              )}
+              {conf && (
+                <div>
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "#9aa3b5",
+                      marginBottom: "3px",
+                    }}
+                  >
+                    Confidence
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#2f7d5b",
+                      fontWeight: 700,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    {conf}
+                  </div>
+                </div>
+              )}
+              {v?.conflict && (
+                <div>
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "#9aa3b5",
+                      marginBottom: "3px",
+                    }}
+                  >
+                    Status
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#9a6a1c",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Conflicting sources
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </div>
-
-      {/* provenance trail */}
-      <div
-        style={{
-          background: "#fff",
-          border: "1px solid #e2e7f0",
-          borderRadius: "12px",
-          padding: "15px 16px",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: MONO,
-            fontSize: "10px",
-            letterSpacing: ".12em",
-            textTransform: "uppercase",
-            color: "#aeb6c7",
-            marginBottom: "12px",
-          }}
-        >
-          Provenance trail
-        </div>
-        {/* SAMPLE crumbs — TODO: provenance API */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "6px",
-            marginBottom: "14px",
-          }}
-        >
-          {[
-            `Filing ${sel.filing}`,
-            `Part ${sel.part}`,
-            `Line ${sel.line}`,
-            `Col ${sel.col}`,
-          ]
-            .map((c, i, arr) => (
-              <>
-                <span
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: "11px",
-                    color: "#2f4a85",
-                    background: "#eef2fa",
-                    borderRadius: "6px",
-                    padding: "4px 9px",
-                  }}
-                >
-                  {c}
-                </span>
-                {i < arr.length - 1 && (
-                  <span style={{ color: "#cfd9e8", fontSize: "11px" }}>→</span>
-                )}
-              </>
-            ))}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "10px",
-            padding: "12px 14px",
-            background: "#eef6f1",
-            border: "1px solid #cfe6da",
-            borderRadius: "10px",
-            marginBottom: "14px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12.5px", color: "#3f6b56", fontWeight: 600 }}
-          >
-            {sel.variable}
-          </span>
-          <span
-            style={{
-              fontFamily: MONO,
-              fontSize: "15px",
-              fontWeight: 700,
-              color: "#245f45",
-            }}
-          >
-            {sel.value}
-          </span>
-        </div>
-        {/* SAMPLE extraction meta — TODO: provenance API */}
-        <div style={{ display: "flex", gap: "20px" }}>
-          <div>
-            <div
-              style={{
-                fontSize: "10px",
-                color: "#9aa3b5",
-                marginBottom: "3px",
-              }}
-            >
-              Extraction
-            </div>
-            <div
-              style={{ fontSize: "12px", color: "#3a4150", fontWeight: 600 }}
-            >
-              OCR + schema map
-            </div>
-          </div>
-          <div>
-            <div
-              style={{
-                fontSize: "10px",
-                color: "#9aa3b5",
-                marginBottom: "3px",
-              }}
-            >
-              Confidence
-            </div>
-            <div
-              style={{
-                fontSize: "12px",
-                color: "#2f7d5b",
-                fontWeight: 700,
-                fontFamily: MONO,
-              }}
-            >
-              {sel.conf}
-            </div>
-          </div>
-          <div>
-            <div
-              style={{
-                fontSize: "10px",
-                color: "#9aa3b5",
-                marginBottom: "3px",
-              }}
-            >
-              Source page
-            </div>
-            <div
-              style={{
-                fontSize: "12px",
-                color: "#3a4150",
-                fontWeight: 600,
-                fontFamily: MONO,
-              }}
-            >
-              {sel.page}
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
+}
 
+/** A label/value row in the source grid. */
+function SrcRow(props: { label: string; value: string; mono?: boolean }) {
   return (
-    <div
-      class="or-walkthrough"
-      style={{ display: "grid", gridTemplateColumns: "236px 1fr 1.02fr" }}
-    >
-      {rail}
-      {chain}
-      {viewer}
-    </div>
+    <>
+      <span
+        style={{ fontSize: "11px", color: "#9aa3b5", whiteSpace: "nowrap" }}
+      >
+        {props.label}
+      </span>
+      <span
+        style={{
+          fontSize: props.mono ? "11px" : "12.5px",
+          color: "#3a4150",
+          fontWeight: props.mono ? 400 : 600,
+          fontFamily: props.mono ? MONO : "inherit",
+          overflowWrap: "anywhere",
+          textAlign: "right",
+        }}
+      >
+        {props.value}
+      </span>
+    </>
   );
 }

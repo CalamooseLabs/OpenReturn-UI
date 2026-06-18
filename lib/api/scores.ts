@@ -56,4 +56,60 @@ export class ScoresApi extends ApiResource {
   types() {
     return this.get<{ types: CodeNameDesc[] }>("/scores/types");
   }
+  /** Full evaluation trace for an org-year-model: formula → numbers → 990 source. */
+  debug(ein: string, year: number, version: number) {
+    return this.get<DebugTrace>("/scores/debug", { ein, year, version });
+  }
+}
+
+/** A single input variable in a factor trace (the provenance record). */
+export interface DebugVariable {
+  key: string;
+  kind: "concept" | "factor" | "model" | "literal";
+  concept?: string;
+  references?: string | number | null;
+  xml_path?: string | null;
+  value?: number | null;
+  raw_value?: string | number | null;
+  present?: boolean;
+  /** Schema location of a 990-derived concept (form / part / section / line). */
+  source?: {
+    form?: string;
+    part?: string;
+    section?: string;
+    line?: string;
+    xml_path?: string;
+  } | null;
+  canonical_source?: string | null;
+  confidence?: number | null;
+  conflict?: boolean;
+}
+
+export interface DebugFactor {
+  factor_id: number;
+  name: string;
+  formula_type: string;
+  weight: number;
+  formula_description?: string | null;
+  inputs: string[];
+  variables: DebugVariable[];
+  formula: string;
+  normalization?: string;
+  raw_value: number | null;
+  normalized: number | null;
+  weighted_value: number | null;
+}
+
+export interface DebugTrace {
+  ein: string;
+  year: number;
+  filing_id: string;
+  form_code?: string;
+  model_version: number;
+  model_type?: string | null;
+  model_kind?: string | null;
+  total_score: number;
+  evaluation_order: string[];
+  factors: DebugFactor[];
+  error?: string;
 }
