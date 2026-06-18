@@ -1,73 +1,125 @@
 @import "tailwindcss";
 
 /*
- * OpenReturn UI design system.
- * Tailwind v4 (CSS-configured). Brand = indigo; neutrals = slate.
- * Component classes keep page markup terse and consistent across the app.
+ * OpenReturn UI — NKC "Brand Navy" analyst design system.
+ * Per the design handoff: navy #192A54 brand, cool page bg, score-band semantics,
+ * Bricolage Grotesque (display) / Hanken Grotesk (UI) / JetBrains Mono (figures).
+ * Component class NAMES are preserved (routes + ui.tsx depend on them); only the
+ * visual definitions change.
  */
 
 @theme {
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #312e81;
+  /* Brand ramp — navy primary (#192A54), accent blue (#3a5da8) in the mids. */
+  --color-brand-50: #eef2fa;
+  --color-brand-100: #e1e8f5;
+  --color-brand-200: #c2cfe8;
+  --color-brand-300: #9fb6e6;
+  --color-brand-400: #6f8fcf;
+  --color-brand-500: #3a5da8;
+  --color-brand-600: #192a54;
+  --color-brand-700: #132041;
+  --color-brand-800: #0e1730;
+  --color-brand-900: #0a0f22;
+
+  /* Named tokens from the handoff. */
+  --color-navy: #192a54;
+  --color-navy-hover: #132041;
+  --color-page: #eceff5;
+  --color-page-alt: #e7eaf1;
+  --color-surface: #ffffff;
+  --color-tint: #f7f9fc;
+  --color-fill: #f1f3f8;
+  --color-line: #dde2ec;
+  --color-line-soft: #eef1f6;
+  --color-ink: #2a2f3a;
+  --color-muted: #5a6172;
+  --color-faint: #8893ab;
+  --color-accent: #3a5da8;
+
+  /* Score bands. Also exposed as bg-band-strong, text-band-solid, etc. */
+  --color-band-strong: #2f7d5b;
+  --color-band-solid: #3a5da8;
+  --color-band-watch: #c98a2b;
+  --color-band-low: #bf6a3e;
+
   --font-sans:
+    "Hanken Grotesk",
     ui-sans-serif,
     system-ui,
     -apple-system,
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
     sans-serif;
+  --font-display:
+    "Bricolage Grotesque",
+    "Hanken Grotesk",
+    ui-sans-serif,
+    sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --radius-card: 16px;
+}
+
+/* Plain custom props (not Tailwind theme namespaces) for box-shadow values. */
+:root {
+  --shadow-card: 0 1px 2px rgb(25 42 84 / 0.05);
+  --shadow-lift: 0 8px 24px -10px rgb(25 42 84 / 0.25);
+  --shadow-hero: 0 30px 60px -30px rgb(25 42 84 / 0.28);
 }
 
 html {
   font-family: var(--font-sans);
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+  @apply bg-page text-ink antialiased;
+  font-size: 15px;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-navy);
+}
+
+p {
+  text-wrap: pretty;
 }
 
 /* ---- Buttons ---------------------------------------------------------- */
 .btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2
-    text-sm font-medium transition-colors cursor-pointer select-none
-    disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5
+    text-sm font-semibold leading-none transition-all duration-150 cursor-pointer
+    select-none focus-visible:outline-none focus-visible:ring-2
+    focus-visible:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed;
 }
 .btn-primary {
-  @apply bg-brand-600 text-white hover:bg-brand-700 shadow-sm;
+  @apply bg-navy text-white hover:bg-navy-hover;
+  box-shadow: 0 1px 2px rgb(25 42 84 / 0.15);
 }
 .btn-secondary {
-  @apply bg-white text-slate-700 border border-slate-300 hover:bg-slate-100;
+  @apply bg-white text-navy border border-line hover:bg-fill;
 }
 .btn-ghost {
-  @apply text-slate-600 hover:bg-slate-100;
+  @apply text-muted hover:bg-fill hover:text-navy;
 }
 .btn-danger {
-  @apply bg-red-600 text-white hover:bg-red-700;
+  @apply bg-band-low text-white hover:brightness-95;
 }
 .btn-sm {
-  @apply px-2.5 py-1.5 text-xs rounded;
+  @apply px-3 py-1.5 text-xs rounded-lg gap-1.5;
 }
 
 /* ---- Forms ------------------------------------------------------------ */
 .label {
-  @apply block text-sm font-medium text-slate-700 mb-1;
+  @apply block text-xs font-semibold uppercase tracking-wider text-faint mb-1.5;
 }
 .input,
 .select {
-  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
-    text-slate-900 shadow-sm placeholder:text-slate-400
-    focus:border-brand-500 focus:ring-2 focus:ring-brand-200 focus:outline-none;
+  @apply w-full rounded-[10px] border border-line bg-white px-3.5 py-2.5 text-sm
+    text-ink shadow-sm placeholder:text-faint transition-colors
+    focus:border-navy focus:ring-2 focus:ring-brand-100 focus:outline-none;
 }
 .field {
   @apply mb-4;
@@ -75,34 +127,45 @@ body {
 
 /* ---- Cards ------------------------------------------------------------ */
 .card {
-  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  @apply rounded-2xl border border-line bg-white;
+  box-shadow: var(--shadow-card);
 }
 .card-pad {
-  @apply p-5;
+  @apply p-6;
+}
+.card-hover {
+  @apply transition-all duration-150 hover:-translate-y-0.5;
+}
+.card-hover:hover {
+  box-shadow: var(--shadow-lift);
+  border-color: #c7d0e0;
 }
 .section-title {
-  @apply text-sm font-semibold uppercase tracking-wide text-slate-500;
+  font-family: var(--font-mono);
+  @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-faint;
 }
 
-/* ---- Badges ----------------------------------------------------------- */
+/* ---- Badges / pills --------------------------------------------------- */
 .badge {
-  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs
-    font-medium;
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
 }
 .badge-gray {
-  @apply bg-slate-100 text-slate-700;
+  @apply bg-fill text-muted;
 }
 .badge-blue {
-  @apply bg-brand-100 text-brand-700;
+  background: #eef2fa;
+  @apply text-[#2f4a85];
 }
 .badge-green {
-  @apply bg-emerald-100 text-emerald-700;
+  background: #e3efe7;
+  @apply text-[#245f45];
 }
 .badge-amber {
-  @apply bg-amber-100 text-amber-800;
+  background: #f6ecd8;
+  @apply text-[#9a6a1c];
 }
 .badge-red {
-  @apply bg-red-100 text-red-700;
+  @apply bg-band-low text-white;
 }
 
 /* ---- Tables ----------------------------------------------------------- */
@@ -110,26 +173,37 @@ body {
   @apply w-full text-left text-sm;
 }
 .table thead th {
-  @apply border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase
-    tracking-wide text-slate-500;
+  font-family: var(--font-mono);
+  @apply border-b border-line px-4 py-3 text-[11px] font-semibold uppercase
+    tracking-[0.1em] text-faint;
 }
 .table tbody td {
-  @apply border-b border-slate-100 px-3 py-2.5 align-middle;
+  @apply border-b border-line-soft px-4 py-3 align-middle text-ink;
+}
+.table tbody tr {
+  @apply transition-colors;
 }
 .table tbody tr:hover {
-  @apply bg-slate-50;
+  @apply bg-tint;
+}
+.table tbody tr:last-child td {
+  @apply border-b-0;
 }
 
 /* ---- Misc ------------------------------------------------------------- */
 .link {
-  @apply text-brand-600 hover:text-brand-700 hover:underline;
+  @apply font-medium text-accent hover:text-navy hover:underline underline-offset-2;
 }
 .nav-link {
-  @apply rounded-md px-3 py-2 text-sm font-medium text-slate-600
-    hover:bg-slate-100 hover:text-slate-900 transition-colors;
+  @apply text-sm text-[#7c89a3] hover:text-navy transition-colors;
 }
 .nav-link-active {
-  @apply bg-brand-50 text-brand-700;
+  @apply text-navy font-semibold;
+}
+
+/* Mono helper for figures/labels/EINs. */
+.mono {
+  font-family: var(--font-mono);
 }
 
 /* Hide the default disclosure triangle on <summary> dropdowns. */

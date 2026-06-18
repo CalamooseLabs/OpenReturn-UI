@@ -33,20 +33,32 @@ export function scoreColor(value: number | null | undefined): {
   bg: string;
   badge: string;
 } {
+  // Navy design score bands (90/80/70 on a 0–100 scale → 0.9/0.8/0.7 on 0–1).
   if (value === null || value === undefined || isNaN(value)) {
-    return { text: "text-slate-400", bg: "bg-slate-300", badge: "badge-gray" };
+    return { text: "text-faint", bg: "bg-line", badge: "badge-gray" };
   }
-  if (value >= 0.75) {
+  if (value >= 0.9) {
     return {
-      text: "text-emerald-700",
-      bg: "bg-emerald-500",
+      text: "text-band-strong",
+      bg: "bg-band-strong",
       badge: "badge-green",
     };
   }
-  if (value >= 0.5) {
-    return { text: "text-amber-700", bg: "bg-amber-500", badge: "badge-amber" };
+  if (value >= 0.8) {
+    return {
+      text: "text-band-solid",
+      bg: "bg-band-solid",
+      badge: "badge-blue",
+    };
   }
-  return { text: "text-red-700", bg: "bg-red-500", badge: "badge-red" };
+  if (value >= 0.7) {
+    return {
+      text: "text-band-watch",
+      bg: "bg-band-watch",
+      badge: "badge-amber",
+    };
+  }
+  return { text: "text-band-low", bg: "bg-band-low", badge: "badge-red" };
 }
 
 /** Format an EIN as 12-3456789. */
