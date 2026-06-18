@@ -1,18 +1,24 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
 import {
+  Avatar,
   Badge,
+  Button,
+  LinkButton,
+  TextArea,
+} from "../../components/atoms.tsx";
+import {
   Card,
   EmptyState,
   ErrorAlert,
   Field,
-  InfoAlert,
-  LinkButton,
+  Flash,
+  OrgIdentity,
   Section,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { formatEin, normalizeEin } from "../../lib/format.ts";
 import { can } from "../../lib/auth.ts";
 import type { Person } from "../../lib/types.ts";
@@ -160,53 +166,43 @@ export default define.page<typeof handler>((ctx) => {
 
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
-      <div class="mb-6">
-        <a href="/people" class="link text-sm">← People</a>
-        <h1 class="mt-1 text-2xl font-bold text-slate-900">{p.full_name}</h1>
-        {p.title && <p class="mt-1 text-sm text-slate-500">{p.title}</p>}
+      <div class="mb-7">
+        <a href="/people" class="link mono text-xs">← PEOPLE DIRECTORY</a>
+        <div class="mt-2 flex items-center gap-4">
+          <Avatar label={p.full_name} size={52} shape="circle" />
+          <div>
+            <h1 class="font-display text-[30px] font-bold tracking-[-0.025em] text-navy">
+              {p.full_name}
+            </h1>
+            {p.title && <p class="mt-0.5 text-muted">{p.title}</p>}
+          </div>
+        </div>
       </div>
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err} />
 
       <Section title="Contact">
         <Card>
-          <dl class="grid gap-4 sm:grid-cols-2">
+          <dl class="grid gap-5 sm:grid-cols-2">
             <div>
-              <dt class="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Email
-              </dt>
-              <dd class="mt-1 text-sm text-slate-800">
+              <dt class="section-title">Email</dt>
+              <dd class="mt-1.5 text-sm text-ink">
                 {p.email
                   ? <a href={`mailto:${p.email}`} class="link">{p.email}</a>
                   : "—"}
               </dd>
             </div>
             <div>
-              <dt class="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Phone
-              </dt>
-              <dd class="mt-1 text-sm text-slate-800">{p.phone ?? "—"}</dd>
+              <dt class="section-title">Phone</dt>
+              <dd class="mt-1.5 text-sm text-ink">{p.phone ?? "—"}</dd>
             </div>
             <div>
-              <dt class="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Title
-              </dt>
-              <dd class="mt-1 text-sm text-slate-800">{p.title ?? "—"}</dd>
+              <dt class="section-title">Title</dt>
+              <dd class="mt-1.5 text-sm text-ink">{p.title ?? "—"}</dd>
             </div>
             <div class="sm:col-span-2">
-              <dt class="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Notes
-              </dt>
-              <dd class="mt-1 whitespace-pre-wrap text-sm text-slate-800">
+              <dt class="section-title">Notes</dt>
+              <dd class="mt-1.5 whitespace-pre-wrap text-sm text-ink">
                 {p.notes ?? "—"}
               </dd>
             </div>
@@ -235,26 +231,24 @@ export default define.page<typeof handler>((ctx) => {
               <Field label="Phone" name="phone" value={p.phone ?? ""} />
               <div class="md:col-span-2">
                 <label class="label" for="notes">Notes</label>
-                <textarea id="notes" name="notes" rows={3} class="input">
-                  {p.notes ?? ""}
-                </textarea>
+                <TextArea
+                  id="notes"
+                  name="notes"
+                  rows={3}
+                  value={p.notes ?? ""}
+                />
               </div>
               <div class="md:col-span-2 flex items-center gap-2">
-                <button type="submit" class="btn btn-primary">
-                  Save changes
-                </button>
+                <Button type="submit" variant="primary">Save changes</Button>
               </div>
             </form>
           </Card>
           <div class="mt-3">
             <form method="POST">
               <input type="hidden" name="action" value="delete" />
-              <button
-                type="submit"
-                class="btn btn-sm btn-secondary text-red-700"
-              >
+              <Button type="submit" variant="danger" size="sm">
                 Delete person
-              </button>
+              </Button>
             </form>
           </div>
         </Section>
@@ -284,18 +278,18 @@ export default define.page<typeof handler>((ctx) => {
               {memberships.map((m) => (
                 <tr>
                   <td>
-                    <a href={`/orgs/${m.org_ein}`} class="link font-medium">
-                      {m.org_name ?? formatEin(m.org_ein)}
-                    </a>
-                    <div class="text-xs text-slate-400">
-                      {formatEin(m.org_ein)}
-                    </div>
+                    <OrgIdentity
+                      ein={m.org_ein}
+                      name={m.org_name ?? formatEin(m.org_ein)}
+                      location={formatEin(m.org_ein)}
+                      size={34}
+                    />
                   </td>
-                  <td class="text-slate-600">{m.role_title ?? "—"}</td>
+                  <td class="text-muted">{m.role_title ?? "—"}</td>
                   <td>
                     {m.is_primary
                       ? <Badge variant="green">Primary</Badge>
-                      : <span class="text-slate-400">—</span>}
+                      : <span class="text-faint">—</span>}
                   </td>
                   {canWrite && (
                     <td class="whitespace-nowrap">
@@ -306,12 +300,9 @@ export default define.page<typeof handler>((ctx) => {
                           value="remove-membership"
                         />
                         <input type="hidden" name="ein" value={m.org_ein} />
-                        <button
-                          type="submit"
-                          class="btn btn-sm btn-secondary"
-                        >
+                        <Button type="submit" variant="secondary" size="sm">
                           Remove
-                        </button>
+                        </Button>
                       </form>
                     </td>
                   )}
@@ -338,15 +329,13 @@ export default define.page<typeof handler>((ctx) => {
                 placeholder="Board Chair"
               />
               <div class="flex items-end">
-                <label class="flex items-center gap-2 text-sm text-slate-600">
+                <label class="flex items-center gap-2 text-sm text-muted">
                   <input type="checkbox" name="is_primary" value="1" />
                   Primary affiliation
                 </label>
               </div>
               <div class="md:col-span-3">
-                <button type="submit" class="btn btn-primary">
-                  Add membership
-                </button>
+                <Button type="submit" variant="primary">Add membership</Button>
               </div>
             </form>
           </Card>

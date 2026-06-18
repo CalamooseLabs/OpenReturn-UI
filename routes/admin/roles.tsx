@@ -1,19 +1,18 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
+import { Badge, Button, LinkButton } from "../../components/atoms.tsx";
 import {
-  Badge,
   Card,
   EmptyState,
   ErrorAlert,
   Field,
-  InfoAlert,
-  LinkButton,
+  Flash,
   PageHeader,
   Section,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { isAdmin } from "../../lib/auth.ts";
 import type { Permission, Role } from "../../lib/types.ts";
 
@@ -120,8 +119,10 @@ function SubNav(props: { path: string }) {
   const tab = (href: string, label: string) => (
     <a
       href={href}
-      class={`btn btn-sm ${
-        props.path === href ? "btn-primary" : "btn-secondary"
+      class={`inline-flex items-center rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+        props.path === href
+          ? "bg-navy text-white"
+          : "border border-line bg-white text-muted hover:border-navy/40 hover:text-navy"
       }`}
     >
       {label}
@@ -142,11 +143,11 @@ export default define.page<typeof handler>((ctx) => {
     return (
       <Layout principal={state.principal} path={url.pathname}>
         <Card>
-          <h1 class="text-xl font-bold text-slate-900">
+          <h1 class="font-display text-xl font-bold tracking-[-0.01em] text-navy">
             Administrator access required
           </h1>
-          <p class="mt-2 text-sm text-slate-500">
-            You need the <code class="text-slate-700">user:admin</code>{" "}
+          <p class="mt-2 text-sm text-muted">
+            You need the <code class="text-ink">user:admin</code>{" "}
             permission to manage roles and permissions.
           </p>
           <div class="mt-4">
@@ -166,20 +167,12 @@ export default define.page<typeof handler>((ctx) => {
     <Layout principal={state.principal} path={url.pathname} wide>
       <SubNav path="/admin/roles" />
       <PageHeader
+        eyebrow="Administration"
         title="Roles & permissions"
         subtitle="Define roles, grant permissions, and manage the permission vocabulary."
       />
 
-      {msg && (
-        <div class="mb-4">
-          <InfoAlert>{msg}</InfoAlert>
-        </div>
-      )}
-      {err && (
-        <div class="mb-4">
-          <ErrorAlert message={err} />
-        </div>
-      )}
+      <Flash msg={msg} err={err} />
       {data.apiError && (
         <div class="mb-4">
           <ErrorAlert message={data.apiError} />
@@ -198,7 +191,7 @@ export default define.page<typeof handler>((ctx) => {
               placeholder="What this role can do"
             />
             <div class="md:col-span-3">
-              <button type="submit" class="btn btn-primary">Create role</button>
+              <Button type="submit" variant="primary">Create role</Button>
             </div>
           </form>
         </Card>
@@ -222,22 +215,17 @@ export default define.page<typeof handler>((ctx) => {
               </select>
             </div>
             <div class="flex gap-2">
-              <button
+              <Button
                 type="submit"
                 name="action"
                 value="grant"
-                class="btn btn-primary"
+                variant="primary"
               >
                 Grant
-              </button>
-              <button
-                type="submit"
-                name="action"
-                value="revoke"
-                class="btn btn-secondary"
-              >
+              </Button>
+              <Button type="submit" name="action" value="revoke">
                 Revoke
-              </button>
+              </Button>
             </div>
           </form>
         </Card>
@@ -260,13 +248,13 @@ export default define.page<typeof handler>((ctx) => {
             >
               {data.roles.map((r) => (
                 <tr>
-                  <td class="font-medium text-slate-900">{r.code}</td>
-                  <td class="text-slate-700">{r.name}</td>
-                  <td class="text-slate-500">{r.description || "—"}</td>
+                  <td class="mono font-semibold text-navy">{r.code}</td>
+                  <td class="text-ink">{r.name}</td>
+                  <td class="text-muted">{r.description || "—"}</td>
                   <td>
                     <div class="flex flex-wrap gap-1">
                       {r.permissions.length === 0
-                        ? <span class="text-slate-400">—</span>
+                        ? <span class="text-faint">—</span>
                         : r.permissions.map((p) => (
                           <Badge key={p} variant="gray">{p}</Badge>
                         ))}
@@ -274,7 +262,7 @@ export default define.page<typeof handler>((ctx) => {
                   </td>
                   <td>
                     {BUILTIN_ROLES.has(r.code)
-                      ? <span class="text-xs text-slate-400">built-in</span>
+                      ? <span class="mono text-xs text-faint">built-in</span>
                       : (
                         <form method="POST" class="inline">
                           <input
@@ -283,9 +271,9 @@ export default define.page<typeof handler>((ctx) => {
                             value="delete-role"
                           />
                           <input type="hidden" name="code" value={r.code} />
-                          <button type="submit" class="btn btn-sm btn-danger">
+                          <Button type="submit" size="sm" variant="danger">
                             Delete
-                          </button>
+                          </Button>
                         </form>
                       )}
                   </td>
@@ -306,9 +294,9 @@ export default define.page<typeof handler>((ctx) => {
               placeholder="What this permission allows"
             />
             <div class="md:col-span-3">
-              <button type="submit" class="btn btn-primary">
+              <Button type="submit" variant="primary">
                 Create permission
-              </button>
+              </Button>
             </div>
           </form>
         </Card>
@@ -333,8 +321,8 @@ export default define.page<typeof handler>((ctx) => {
             >
               {data.permissions.map((p) => (
                 <tr>
-                  <td class="font-medium text-slate-900">{p.code}</td>
-                  <td class="text-slate-500">{p.description || "—"}</td>
+                  <td class="mono font-semibold text-navy">{p.code}</td>
+                  <td class="text-muted">{p.description || "—"}</td>
                 </tr>
               ))}
             </Table>

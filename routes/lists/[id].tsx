@@ -1,18 +1,19 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
+import { Badge, Button, LinkButton } from "../../components/atoms.tsx";
 import {
-  Badge,
   Card,
   EmptyState,
   ErrorAlert,
   Field,
-  InfoAlert,
-  LinkButton,
+  Flash,
+  OrgIdentity,
   Section,
+  Select,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { formatEin, normalizeEin, titleCase } from "../../lib/format.ts";
 import { can } from "../../lib/auth.ts";
 import type { ListDetail } from "../../lib/types.ts";
@@ -169,9 +170,11 @@ export default define.page<typeof handler>((ctx) => {
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       {/* Header */}
-      <div class="mb-6">
-        <a href="/lists" class="link text-sm">← Lists</a>
-        <h1 class="mt-1 text-2xl font-bold text-slate-900">{list.name}</h1>
+      <div class="mb-7">
+        <a href="/lists" class="link mono text-xs">← ORGANIZATION LISTS</a>
+        <h1 class="mt-2 font-display text-[30px] font-bold tracking-[-0.025em] text-navy">
+          {list.name}
+        </h1>
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <Badge variant={visibilityVariant(list.visibility)}>
             {titleCase(list.visibility)}
@@ -182,16 +185,7 @@ export default define.page<typeof handler>((ctx) => {
         </div>
       </div>
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err} />
 
       {canWrite && (
         <Section title="Settings">
@@ -203,43 +197,32 @@ export default define.page<typeof handler>((ctx) => {
                   class="grid gap-4 sm:grid-cols-2 sm:items-end"
                 >
                   <input type="hidden" name="action" value="edit" />
-                  <Field
-                    label="Name"
-                    name="name"
-                    value={list.name}
+                  <Field label="Name" name="name" value={list.name} />
+                  <Select
+                    label="Visibility"
+                    name="visibility"
+                    value={list.visibility}
+                    options={VISIBILITY_OPTIONS}
                   />
-                  <div class="field">
-                    <label class="label" for="visibility">Visibility</label>
-                    <select class="select" id="visibility" name="visibility">
-                      {VISIBILITY_OPTIONS.map((o) => (
-                        <option
-                          value={o.value}
-                          selected={o.value === list.visibility}
-                        >
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
                   <div class="sm:col-span-2">
-                    <button type="submit" class="btn btn-primary">
+                    <Button type="submit" variant="primary">
                       Save changes
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </Card>
             </div>
             <Card>
               <div class="section-title mb-2">Danger zone</div>
-              <p class="mb-3 text-sm text-slate-500">
+              <p class="mb-3 text-sm text-muted">
                 Deleting a list cannot be undone. Member organizations are not
                 affected.
               </p>
               <form method="POST">
                 <input type="hidden" name="action" value="delete" />
-                <button type="submit" class="btn btn-secondary">
+                <Button type="submit" variant="danger" size="sm">
                   Delete list
-                </button>
+                </Button>
               </form>
             </Card>
           </div>
@@ -263,9 +246,9 @@ export default define.page<typeof handler>((ctx) => {
                 />
               </div>
               <div>
-                <button type="submit" class="btn btn-primary">
+                <Button type="submit" variant="primary">
                   Add organization
-                </button>
+                </Button>
               </div>
             </form>
           </Card>
@@ -293,13 +276,9 @@ export default define.page<typeof handler>((ctx) => {
               {orgs.map((o) => (
                 <tr>
                   <td>
-                    <a href={`/orgs/${o.ein}`} class="link font-medium">
-                      {o.name}
-                    </a>
+                    <OrgIdentity ein={o.ein} name={o.name} size={34} />
                   </td>
-                  <td class="tabular-nums text-slate-500">
-                    {formatEin(o.ein)}
-                  </td>
+                  <td class="mono text-faint">{formatEin(o.ein)}</td>
                   {canWrite && (
                     <td class="whitespace-nowrap text-right">
                       <form method="POST" class="inline">
@@ -309,12 +288,9 @@ export default define.page<typeof handler>((ctx) => {
                           value="remove-member"
                         />
                         <input type="hidden" name="ein" value={o.ein} />
-                        <button
-                          type="submit"
-                          class="btn btn-sm btn-secondary"
-                        >
+                        <Button type="submit" variant="secondary" size="sm">
                           Remove
-                        </button>
+                        </Button>
                       </form>
                     </td>
                   )}

@@ -1,18 +1,19 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
+import { Badge, Button } from "../../components/atoms.tsx";
 import {
-  Badge,
   Card,
   EmptyState,
-  ErrorAlert,
   Field,
+  Flash,
   InfoAlert,
   PageHeader,
   Section,
+  Select,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { dateOnly, titleCase } from "../../lib/format.ts";
 import { can } from "../../lib/auth.ts";
 import type { ListSummary } from "../../lib/types.ts";
@@ -115,24 +116,11 @@ export default define.page<typeof handler>((ctx) => {
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       <PageHeader
         title="Lists"
+        eyebrow="ORGANIZATION LISTS"
         subtitle="Group organizations into curated or smart collections."
       />
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
-      {data.error && (
-        <div class="mb-4">
-          <ErrorAlert message={data.error} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err ?? data.error} />
 
       {canWrite && (
         <Section title="Create list">
@@ -145,26 +133,14 @@ export default define.page<typeof handler>((ctx) => {
                 placeholder="e.g. Education funders"
                 required
               />
-              <div class="field">
-                <label class="label" for="visibility">Visibility</label>
-                <select class="select" id="visibility" name="visibility">
-                  {VISIBILITY_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div class="field">
-                <label class="label" for="kind">Kind</label>
-                <select class="select" id="kind" name="kind">
-                  {KIND_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Visibility"
+                name="visibility"
+                options={VISIBILITY_OPTIONS}
+              />
+              <Select label="Kind" name="kind" options={KIND_OPTIONS} />
               <div class="md:col-span-3">
-                <button type="submit" class="btn btn-primary">
-                  Create list
-                </button>
+                <Button type="submit" variant="primary">Create list</Button>
               </div>
             </form>
           </Card>
@@ -197,7 +173,7 @@ export default define.page<typeof handler>((ctx) => {
                   <td>
                     <a
                       href={`/lists/${l.list_id}`}
-                      class="link font-medium"
+                      class="font-bold text-navy hover:underline"
                     >
                       {l.name}
                     </a>
@@ -212,7 +188,7 @@ export default define.page<typeof handler>((ctx) => {
                       {titleCase(l.kind)}
                     </Badge>
                   </td>
-                  <td class="text-slate-500">{dateOnly(l.created_at)}</td>
+                  <td class="text-faint">{dateOnly(l.created_at)}</td>
                 </tr>
               ))}
             </Table>

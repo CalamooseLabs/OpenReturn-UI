@@ -1,19 +1,18 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
+import { Badge, Button, LinkButton } from "../../components/atoms.tsx";
 import {
-  Badge,
   Card,
   EmptyState,
   ErrorAlert,
   Field,
-  InfoAlert,
-  LinkButton,
+  Flash,
   PageHeader,
   Section,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { dateOnly } from "../../lib/format.ts";
 import { isAdmin } from "../../lib/auth.ts";
 import type { Role, UserAccount } from "../../lib/types.ts";
@@ -149,8 +148,10 @@ function SubNav(props: { path: string }) {
   const tab = (href: string, label: string) => (
     <a
       href={href}
-      class={`btn btn-sm ${
-        props.path === href ? "btn-primary" : "btn-secondary"
+      class={`inline-flex items-center rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+        props.path === href
+          ? "bg-navy text-white"
+          : "border border-line bg-white text-muted hover:border-navy/40 hover:text-navy"
       }`}
     >
       {label}
@@ -171,11 +172,11 @@ export default define.page<typeof handler>((ctx) => {
     return (
       <Layout principal={state.principal} path={url.pathname}>
         <Card>
-          <h1 class="text-xl font-bold text-slate-900">
+          <h1 class="font-display text-xl font-bold tracking-[-0.01em] text-navy">
             Administrator access required
           </h1>
-          <p class="mt-2 text-sm text-slate-500">
-            You need the <code class="text-slate-700">user:admin</code>{" "}
+          <p class="mt-2 text-sm text-muted">
+            You need the <code class="text-ink">user:admin</code>{" "}
             permission to manage users.
           </p>
           <div class="mt-4">
@@ -194,20 +195,12 @@ export default define.page<typeof handler>((ctx) => {
     <Layout principal={state.principal} path={url.pathname} wide>
       <SubNav path="/admin" />
       <PageHeader
+        eyebrow="Administration"
         title="Users"
         subtitle="Create accounts, manage roles, and reset passwords."
       />
 
-      {msg && (
-        <div class="mb-4">
-          <InfoAlert>{msg}</InfoAlert>
-        </div>
-      )}
-      {err && (
-        <div class="mb-4">
-          <ErrorAlert message={err} />
-        </div>
-      )}
+      <Flash msg={msg} err={err} />
       {data.apiError && (
         <div class="mb-4">
           <ErrorAlert message={data.apiError} />
@@ -240,7 +233,7 @@ export default define.page<typeof handler>((ctx) => {
               </select>
             </div>
             <div class="md:col-span-3">
-              <button type="submit" class="btn btn-primary">Create user</button>
+              <Button type="submit" variant="primary">Create user</Button>
             </div>
           </form>
         </Card>
@@ -268,9 +261,9 @@ export default define.page<typeof handler>((ctx) => {
             >
               {data.users.map((u) => (
                 <tr>
-                  <td class="font-medium text-slate-900">
+                  <td class="font-medium text-navy">
                     {u.username}
-                    <div class="text-xs text-slate-400">
+                    <div class="mono text-xs text-faint">
                       since {dateOnly(u.created_at)}
                     </div>
                   </td>
@@ -282,7 +275,7 @@ export default define.page<typeof handler>((ctx) => {
                   <td>
                     <div class="flex flex-wrap gap-1">
                       {u.roles.length === 0
-                        ? <span class="text-slate-400">—</span>
+                        ? <span class="text-faint">—</span>
                         : u.roles.map((r) => (
                           <form method="POST" class="inline-flex items-center">
                             <input
@@ -307,7 +300,7 @@ export default define.page<typeof handler>((ctx) => {
                         ))}
                     </div>
                   </td>
-                  <td class="text-slate-500">
+                  <td class="text-muted">
                     {u.last_login_at ? dateOnly(u.last_login_at) : "—"}
                   </td>
                   <td>
@@ -323,9 +316,9 @@ export default define.page<typeof handler>((ctx) => {
                           name="username"
                           value={u.username}
                         />
-                        <button type="submit" class="btn btn-sm btn-secondary">
+                        <Button type="submit" size="sm">
                           {u.is_active ? "Deactivate" : "Activate"}
-                        </button>
+                        </Button>
                       </form>
                       <form method="POST" class="inline">
                         <input
@@ -338,9 +331,9 @@ export default define.page<typeof handler>((ctx) => {
                           name="username"
                           value={u.username}
                         />
-                        <button type="submit" class="btn btn-sm btn-secondary">
+                        <Button type="submit" size="sm">
                           Reset password
-                        </button>
+                        </Button>
                       </form>
                       <form
                         method="POST"
@@ -362,9 +355,9 @@ export default define.page<typeof handler>((ctx) => {
                             <option key={code} value={code}>{code}</option>
                           ))}
                         </select>
-                        <button type="submit" class="btn btn-sm btn-secondary">
+                        <Button type="submit" size="sm">
                           Assign
-                        </button>
+                        </Button>
                       </form>
                     </div>
                   </td>

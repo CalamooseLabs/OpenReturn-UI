@@ -1,17 +1,17 @@
 import type { ComponentChildren } from "preact";
-import { define } from "../utils.ts";
+import { define } from "../../utils.ts";
 import { page } from "fresh";
-import { ApiError } from "../lib/api/mod.ts";
-import { Layout } from "../components/Layout.tsx";
-import { titleCase } from "../lib/format.ts";
-import { isAdmin } from "../lib/auth.ts";
-import { listModelOptions, type ModelOption } from "../lib/models.ts";
+import { ApiError } from "../../lib/api/mod.ts";
+import { Layout } from "../../components/Layout.tsx";
+import { titleCase } from "../../lib/format.ts";
+import { isAdmin } from "../../lib/auth.ts";
+import { listModelOptions, type ModelOption } from "../../lib/models.ts";
 import type {
   CodeNameDesc,
   FactorDef,
   FactorsResponse,
   TemplateSummary,
-} from "../lib/types.ts";
+} from "../../lib/types.ts";
 
 /** Definition shape returned by /templates/detail and accepted by POST /admin/models. */
 interface ModelDefinition {
@@ -374,7 +374,7 @@ function PillarCard(
 ) {
   const { pillar, model, features } = props;
   const chips = features.length ? features : pillar.features;
-  const href = model ? `/models?version=${model.version}` : undefined;
+  const href = model ? `/models/${model.version}` : undefined;
   const inputs = model ? "Registered" : `${pillar.features.length} signals`;
   const inner = (
     <>
@@ -550,7 +550,7 @@ function benchmark(f: FactorDef): string {
 export default define.page<typeof handler>((ctx) => {
   const { data, state } = ctx;
   const bannerHref = data.compositeVersion !== undefined
-    ? `/models?version=${data.compositeVersion}`
+    ? `/models/${data.compositeVersion}`
     : undefined;
 
   return (
@@ -1038,7 +1038,7 @@ export default define.page<typeof handler>((ctx) => {
           <div class="flex flex-wrap gap-2">
             {data.models.map((m) => (
               <a
-                href={`/models?version=${m.version}`}
+                href={`/models/${m.version}`}
                 class="card card-hover no-underline"
                 style={{
                   borderRadius: "10px",

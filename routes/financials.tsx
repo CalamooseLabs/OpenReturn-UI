@@ -1,17 +1,18 @@
 import { define } from "../utils.ts";
 import { page } from "fresh";
 import { ApiError, softError } from "../lib/api/mod.ts";
-import { Layout } from "../components/Layout.tsx";
+import { Layout } from "../components/templates.tsx";
+import { Badge, Button, LinkButton } from "../components/atoms.tsx";
 import {
-  Badge,
   Card,
   EmptyState,
   ErrorAlert,
-  InfoAlert,
+  Field,
+  Flash,
   PageHeader,
   Section,
   Table,
-} from "../components/ui.tsx";
+} from "../components/molecules.tsx";
 import { formatEin, money, normalizeEin, titleCase } from "../lib/format.ts";
 import { can } from "../lib/auth.ts";
 import type { FinancialFact } from "../lib/types.ts";
@@ -172,50 +173,38 @@ export default define.page<typeof handler>((ctx) => {
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       <PageHeader
+        eyebrow="Financial Data"
         title="Financial data"
         subtitle="Inspect an organization's reported facts and resolve source conflicts."
       />
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err} />
 
-      <form method="GET" class="card card-pad mb-6">
-        <div class="grid gap-4 md:grid-cols-3 md:items-end">
-          <div class="md:col-span-2">
-            <label class="label" for="ein">EIN</label>
-            <input
-              class="input"
-              id="ein"
-              name="ein"
-              value={data.ein}
-              placeholder="12-3456789"
-              required
-            />
-          </div>
-          <div>
-            <label class="label" for="year">Fiscal year (optional)</label>
-            <input
-              class="input"
-              id="year"
+      <Card class="mb-6">
+        <form method="GET">
+          <div class="grid gap-4 md:grid-cols-3 md:items-end">
+            <div class="md:col-span-2">
+              <Field
+                label="EIN"
+                name="ein"
+                value={data.ein}
+                placeholder="12-3456789"
+                required
+              />
+            </div>
+            <Field
+              label="Fiscal year (optional)"
               name="year"
               value={data.year}
               placeholder="e.g. 2023"
             />
           </div>
-        </div>
-        <div class="mt-4 flex gap-2">
-          <button type="submit" class="btn btn-primary">Load</button>
-          <a href="/financials" class="btn btn-secondary">Clear</a>
-        </div>
-      </form>
+          <div class="mt-4 flex gap-2">
+            <Button type="submit" variant="primary">Load</Button>
+            <LinkButton href="/financials">Clear</LinkButton>
+          </div>
+        </form>
+      </Card>
 
       {!data.hasEin
         ? (
@@ -227,11 +216,11 @@ export default define.page<typeof handler>((ctx) => {
         : (
           <>
             <div class="mb-6">
-              <h2 class="text-xl font-bold text-slate-900">
+              <h2 class="font-display text-xl font-bold tracking-[-0.01em] text-navy">
                 {data.orgName ?? "Organization"}
               </h2>
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                <span class="tabular-nums">EIN {formatEin(data.ein)}</span>
+              <div class="mono mt-1.5 flex flex-wrap items-center gap-4 text-xs text-faint">
+                <span>EIN {formatEin(data.ein)}</span>
                 <a href={`/orgs/${data.ein}`} class="link">
                   View organization →
                 </a>
@@ -257,12 +246,12 @@ export default define.page<typeof handler>((ctx) => {
                   <div class="grid gap-4">
                     {data.conflicts.map((c) => (
                       <Card>
-                        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                           <div>
-                            <div class="font-semibold text-slate-900">
+                            <div class="font-display font-bold text-navy">
                               {titleCase(c.concept_code)}
                             </div>
-                            <div class="text-xs text-slate-500">
+                            <div class="mono mt-0.5 text-xs text-faint">
                               Fiscal year {c.fiscal_year}
                               {c.chosen_by ? ` · chosen by ${c.chosen_by}` : ""}
                             </div>
@@ -295,16 +284,16 @@ export default define.page<typeof handler>((ctx) => {
                                   />
                                 </td>
                               )}
-                              <td class="text-slate-700">
+                              <td class="text-ink">
                                 {sourceLabel(data.sources, o.source_code)}
-                                <div class="text-xs text-slate-400">
+                                <div class="mono text-xs text-faint">
                                   <code>{o.source_code}</code>
                                 </div>
                               </td>
-                              <td class="tabular-nums font-medium">
+                              <td class="tabular-nums font-semibold text-navy">
                                 {money(o.value)}
                               </td>
-                              <td class="tabular-nums text-slate-500">
+                              <td class="tabular-nums text-muted">
                                 {o.confidence === null ||
                                     o.confidence === undefined
                                   ? "—"
@@ -323,7 +312,7 @@ export default define.page<typeof handler>((ctx) => {
                           <form
                             method="POST"
                             id={`canon-${c.concept_code}-${c.fiscal_year}`}
-                            class="mt-3 flex items-center gap-2"
+                            class="mt-4 flex flex-wrap items-center gap-2"
                           >
                             <input
                               type="hidden"
@@ -346,13 +335,10 @@ export default define.page<typeof handler>((ctx) => {
                               name="fiscal_year"
                               value={c.fiscal_year}
                             />
-                            <button
-                              type="submit"
-                              class="btn btn-sm btn-primary"
-                            >
+                            <Button type="submit" variant="primary" size="sm">
                               Set canonical
-                            </button>
-                            <span class="text-xs text-slate-400">
+                            </Button>
+                            <span class="text-xs text-faint">
                               Select an observation above, then confirm.
                             </span>
                           </form>
@@ -386,13 +372,15 @@ export default define.page<typeof handler>((ctx) => {
                   >
                     {data.facts.map((f) => (
                       <tr>
-                        <td class="font-medium text-slate-700">
+                        <td class="font-medium text-ink">
                           {titleCase(f.concept_code)}
                         </td>
-                        <td class="tabular-nums text-slate-500">
+                        <td class="tabular-nums text-muted">
                           {f.fiscal_year}
                         </td>
-                        <td class="tabular-nums">{money(f.canonical_value)}</td>
+                        <td class="tabular-nums font-semibold text-navy">
+                          {money(f.canonical_value)}
+                        </td>
                         <td>
                           {f.conflict
                             ? <Badge variant="red">Conflict</Badge>
@@ -400,7 +388,7 @@ export default define.page<typeof handler>((ctx) => {
                             ? <Badge variant="green">Resolved</Badge>
                             : <Badge variant="gray">Single source</Badge>}
                         </td>
-                        <td class="text-slate-500">{f.chosen_by ?? "—"}</td>
+                        <td class="text-muted">{f.chosen_by ?? "—"}</td>
                       </tr>
                     ))}
                   </Table>

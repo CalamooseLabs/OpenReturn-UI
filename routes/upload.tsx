@@ -1,14 +1,17 @@
 import { define } from "../utils.ts";
 import { page } from "fresh";
 import { ApiError, softError } from "../lib/api/mod.ts";
-import { Layout } from "../components/Layout.tsx";
+import { Layout } from "../components/templates.tsx";
+import { Button } from "../components/atoms.tsx";
 import {
   Card,
   ErrorAlert,
+  Field,
+  Flash,
   InfoAlert,
   PageHeader,
   Section,
-} from "../components/ui.tsx";
+} from "../components/molecules.tsx";
 import { can } from "../lib/auth.ts";
 
 interface Data {
@@ -118,12 +121,12 @@ function ResultCard(props: { result: unknown; kind?: string }) {
       <Card>
         {soft
           ? (
-            <div class="mb-3">
+            <div class="mb-4">
               <ErrorAlert message={soft} />
             </div>
           )
           : (
-            <div class="mb-3">
+            <div class="mb-4">
               <InfoAlert>
                 {props.kind === "pdf" ? "PDF processed." : "Upload processed."}
               </InfoAlert>
@@ -132,9 +135,11 @@ function ResultCard(props: { result: unknown; kind?: string }) {
         {rows.length > 0 && (
           <dl class="mb-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
             {rows.map(([k, v]) => (
-              <div class="flex justify-between gap-4 border-b border-slate-100 py-1">
-                <dt class="text-sm text-slate-500">{k}</dt>
-                <dd class="text-sm font-medium tabular-nums text-slate-800">
+              <div class="flex justify-between gap-4 border-b border-line-soft py-1.5">
+                <dt class="mono text-xs uppercase tracking-wide text-faint">
+                  {k}
+                </dt>
+                <dd class="text-sm font-semibold tabular-nums text-navy">
                   {v}
                 </dd>
               </div>
@@ -142,10 +147,10 @@ function ResultCard(props: { result: unknown; kind?: string }) {
           </dl>
         )}
         <details>
-          <summary class="cursor-pointer text-sm text-slate-500">
+          <summary class="mono cursor-pointer text-xs uppercase tracking-wide text-faint">
             Raw response
           </summary>
-          <pre class="mt-2 overflow-x-auto rounded-md bg-slate-50 p-3 text-xs text-slate-700">{raw}</pre>
+          <pre class="mt-2 overflow-x-auto rounded-xl bg-page p-3 text-xs text-ink">{raw}</pre>
         </details>
       </Card>
     </Section>
@@ -159,13 +164,13 @@ export default define.page<typeof handler>((ctx) => {
   if (!allowed) {
     return (
       <Layout principal={state.principal} path={ctx.url.pathname}>
-        <PageHeader title="Upload" />
+        <PageHeader eyebrow="Data Ingestion" title="Upload" />
         <Card>
-          <h2 class="text-lg font-semibold text-slate-900">
+          <h2 class="font-display text-lg font-bold tracking-[-0.01em] text-navy">
             Upload access required
           </h2>
-          <p class="mt-2 text-sm text-slate-500">
-            You need the <code class="text-slate-700">upload:write</code>{" "}
+          <p class="mt-2 text-sm text-muted">
+            You need the <code class="text-ink">upload:write</code>{" "}
             permission to ingest filings or OCR PDFs.
           </p>
         </Card>
@@ -176,20 +181,12 @@ export default define.page<typeof handler>((ctx) => {
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       <PageHeader
+        eyebrow="Data Ingestion"
         title="Upload"
         subtitle="Bulk-ingest a ZIP of 990 XML filings, or OCR a single 990 PDF."
       />
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err} />
       {data.error && (
         <div class="mb-4">
           <ErrorAlert message={data.error} />
@@ -202,7 +199,7 @@ export default define.page<typeof handler>((ctx) => {
 
       <Section title="Upload a ZIP of 990 filings">
         <Card>
-          <p class="mb-3 text-sm text-slate-500">
+          <p class="mb-4 text-sm text-muted">
             Upload a <code>.zip</code>{" "}
             archive of IRS Form 990 XML filings. Each filing is parsed, stored,
             and scored.
@@ -221,9 +218,9 @@ export default define.page<typeof handler>((ctx) => {
               />
             </div>
             <div class="mt-4">
-              <button type="submit" class="btn btn-primary">
+              <Button type="submit" variant="primary">
                 Upload ZIP
-              </button>
+              </Button>
             </div>
           </form>
         </Card>
@@ -231,7 +228,7 @@ export default define.page<typeof handler>((ctx) => {
 
       <Section title="OCR a 990 PDF">
         <Card>
-          <p class="mb-3 text-sm text-slate-500">
+          <p class="mb-4 text-sm text-muted">
             Extract financial observations from a scanned or printed 990{" "}
             <code>.pdf</code>{" "}
             via OCR. The OCR engine may be unavailable on the server, in which
@@ -240,28 +237,19 @@ export default define.page<typeof handler>((ctx) => {
           <form method="POST" enctype="multipart/form-data">
             <input type="hidden" name="action" value="pdf" />
             <div class="grid gap-4 md:grid-cols-2">
-              <div class="field">
-                <label class="label" for="ein">EIN</label>
-                <input
-                  class="input"
-                  id="ein"
-                  name="ein"
-                  type="text"
-                  placeholder="12-3456789"
-                  required
-                />
-              </div>
-              <div class="field">
-                <label class="label" for="year">Fiscal year</label>
-                <input
-                  class="input"
-                  id="year"
-                  name="year"
-                  type="number"
-                  placeholder="2024"
-                  required
-                />
-              </div>
+              <Field
+                label="EIN"
+                name="ein"
+                placeholder="12-3456789"
+                required
+              />
+              <Field
+                label="Fiscal year"
+                name="year"
+                type="number"
+                placeholder="2024"
+                required
+              />
             </div>
             <div class="field mt-4">
               <label class="label" for="pdffile">PDF file</label>
@@ -275,9 +263,9 @@ export default define.page<typeof handler>((ctx) => {
               />
             </div>
             <div class="mt-4">
-              <button type="submit" class="btn btn-primary">
+              <Button type="submit" variant="primary">
                 Upload &amp; OCR
-              </button>
+              </Button>
             </div>
           </form>
         </Card>

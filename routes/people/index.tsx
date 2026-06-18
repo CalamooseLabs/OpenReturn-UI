@@ -1,18 +1,18 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
+import { Avatar, Button, TextArea } from "../../components/atoms.tsx";
 import {
   Card,
   EmptyState,
-  ErrorAlert,
   Field,
-  InfoAlert,
+  Flash,
   PageHeader,
   Pagination,
   Section,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { can } from "../../lib/auth.ts";
 import type { Person } from "../../lib/types.ts";
 
@@ -128,24 +128,11 @@ export default define.page<typeof handler>((ctx) => {
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       <PageHeader
         title="People"
+        eyebrow="PEOPLE DIRECTORY"
         subtitle="Track contacts and their organization memberships."
       />
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
-      {data.error && (
-        <div class="mb-4">
-          <ErrorAlert message={data.error} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err ?? data.error} />
 
       <form method="GET" class="card card-pad mb-6">
         <div class="flex flex-wrap items-end gap-4">
@@ -160,7 +147,7 @@ export default define.page<typeof handler>((ctx) => {
             />
           </div>
           <div class="flex gap-2">
-            <button type="submit" class="btn btn-primary">Search</button>
+            <Button type="submit" variant="primary">Search</Button>
             <a href="/people" class="btn btn-secondary">Clear</a>
           </div>
         </div>
@@ -191,18 +178,15 @@ export default define.page<typeof handler>((ctx) => {
               <Field label="Phone" name="phone" placeholder="555-123-4567" />
               <div class="md:col-span-2">
                 <label class="label" for="notes">Notes</label>
-                <textarea
+                <TextArea
                   id="notes"
                   name="notes"
                   rows={3}
-                  class="input"
                   placeholder="Optional notes…"
                 />
               </div>
               <div class="md:col-span-2">
-                <button type="submit" class="btn btn-primary">
-                  Add person
-                </button>
+                <Button type="submit" variant="primary">Add person</Button>
               </div>
             </form>
           </Card>
@@ -238,13 +222,14 @@ export default define.page<typeof handler>((ctx) => {
                     <td>
                       <a
                         href={`/people/${p.person_id}`}
-                        class="link font-medium"
+                        class="flex items-center gap-3"
                       >
-                        {p.full_name}
+                        <Avatar label={p.full_name} size={34} shape="circle" />
+                        <span class="font-bold text-navy">{p.full_name}</span>
                       </a>
                     </td>
-                    <td class="text-slate-600">{p.title ?? "—"}</td>
-                    <td class="text-slate-600">
+                    <td class="text-muted">{p.title ?? "—"}</td>
+                    <td class="text-muted">
                       {p.email
                         ? (
                           <a href={`mailto:${p.email}`} class="link">
@@ -253,7 +238,7 @@ export default define.page<typeof handler>((ctx) => {
                         )
                         : "—"}
                     </td>
-                    <td class="text-slate-600">{p.phone ?? "—"}</td>
+                    <td class="text-muted">{p.phone ?? "—"}</td>
                   </tr>
                 ))}
               </Table>

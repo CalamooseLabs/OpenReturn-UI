@@ -1,18 +1,20 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
-import { Layout } from "../../components/Layout.tsx";
+import { Layout } from "../../components/templates.tsx";
+import { Button } from "../../components/atoms.tsx";
 import {
-  Badge,
   Card,
   EmptyState,
   ErrorAlert,
   Field,
+  Flash,
   InfoAlert,
+  OrgIdentity,
   PageHeader,
   Section,
   Table,
-} from "../../components/ui.tsx";
+} from "../../components/molecules.tsx";
 import { formatEin, normalizeEin } from "../../lib/format.ts";
 import { can } from "../../lib/auth.ts";
 import type { TagInfo } from "../../lib/types.ts";
@@ -123,24 +125,11 @@ export default define.page<typeof handler>((ctx) => {
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       <PageHeader
         title="Tags"
+        eyebrow="TAG LIBRARY"
         subtitle="Browse organization tags, see what's tagged, and apply or remove tags."
       />
 
-      {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
-        </div>
-      )}
-      {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
-        </div>
-      )}
-      {data.error && (
-        <div class="mb-4">
-          <ErrorAlert message={data.error} />
-        </div>
-      )}
+      <Flash msg={data.msg} err={data.err ?? data.error} />
 
       {/* All tags */}
       <Section title={`All tags (${data.tags.length})`}>
@@ -154,32 +143,30 @@ export default define.page<typeof handler>((ctx) => {
             />
           )
           : (
-            <Table
-              head={
-                <>
-                  <th>Tag</th>
-                  <th>Organizations</th>
-                </>
-              }
-            >
-              {data.tags.map((t) => (
-                <tr>
-                  <td>
-                    <a
-                      href={`/tags?tag=${encodeURIComponent(t.name)}`}
-                      class={`link font-medium ${
-                        t.name === data.selectedTag ? "font-bold" : ""
+            <div class="flex flex-wrap gap-2">
+              {data.tags.map((t) => {
+                const active = t.name === data.selectedTag;
+                return (
+                  <a
+                    href={`/tags?tag=${encodeURIComponent(t.name)}`}
+                    class={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+                      active
+                        ? "border-navy bg-navy text-white"
+                        : "border-line bg-white text-muted hover:border-navy/40 hover:text-navy"
+                    }`}
+                  >
+                    <span class="font-semibold">{t.name}</span>
+                    <span
+                      class={`mono rounded-full px-1.5 text-[11px] ${
+                        active ? "bg-white/20" : "bg-brand-50 text-navy"
                       }`}
                     >
-                      {t.name}
-                    </a>
-                  </td>
-                  <td>
-                    <Badge variant="blue">{t.org_count}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </Table>
+                      {t.org_count}
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
           )}
       </Section>
 
@@ -202,7 +189,7 @@ export default define.page<typeof handler>((ctx) => {
               <Table
                 head={
                   <>
-                    <th>Organization (EIN)</th>
+                    <th>Organization</th>
                     <th></th>
                   </>
                 }
@@ -210,12 +197,11 @@ export default define.page<typeof handler>((ctx) => {
                 {data.taggedEins.map((ein) => (
                   <tr>
                     <td>
-                      <a
-                        href={`/orgs/${ein}`}
-                        class="link font-medium tabular-nums"
-                      >
-                        {formatEin(ein)}
-                      </a>
+                      <OrgIdentity
+                        ein={ein}
+                        name={formatEin(ein)}
+                        size={34}
+                      />
                     </td>
                     <td class="text-right">
                       {canWrite && (
@@ -227,13 +213,14 @@ export default define.page<typeof handler>((ctx) => {
                             name="tag"
                             value={data.selectedTag}
                           />
-                          <button
+                          <Button
                             type="submit"
-                            class="btn btn-sm btn-secondary"
+                            variant="secondary"
+                            size="sm"
                             title={`Remove "${data.selectedTag}"`}
                           >
                             Remove
-                          </button>
+                          </Button>
                         </form>
                       )}
                     </td>
@@ -268,9 +255,7 @@ export default define.page<typeof handler>((ctx) => {
                   required
                 />
                 <div>
-                  <button type="submit" class="btn btn-primary">
-                    Apply tag
-                  </button>
+                  <Button type="submit" variant="primary">Apply tag</Button>
                 </div>
               </form>
             </Card>
