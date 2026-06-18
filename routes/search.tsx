@@ -2,18 +2,12 @@ import { define } from "../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../lib/api/mod.ts";
 import { Layout } from "../components/Layout.tsx";
-import {
-  Badge,
-  EmptyState,
-  ErrorAlert,
-  PageHeader,
-  Pagination,
-  Table,
-} from "../components/ui.tsx";
-import { formatEin, titleCase } from "../lib/format.ts";
-import type { OrgSummary, Sector } from "../lib/types.ts";
+import { BandBar, GradePill } from "../components/score.tsx";
+import { scoreBand, to100 } from "../lib/score.ts";
+import { titleCase } from "../lib/format.ts";
+import type { ModelSummary, OrgSummary, Sector } from "../lib/types.ts";
 
-const LIMIT = 25;
+const LIMIT = 24;
 
 interface Filters {
   q: string;
@@ -26,14 +20,20 @@ interface Filters {
   fuzzy: boolean;
 }
 
+/** A search hit enriched with its overall score, where one is readily known. */
+interface ScoredOrg extends OrgSummary {
+  score100?: number | null;
+}
+
 interface Data {
   filters: Filters;
   hasQuery: boolean;
-  results: OrgSummary[];
+  results: ScoredOrg[];
   total: number;
   offset: number;
   states: { code: string; name: string }[];
   sectors: Sector[];
+  overallVersion?: number;
   error?: string;
 }
 
@@ -50,6 +50,15 @@ function readFilters(sp: URLSearchParams): Filters {
   };
 }
 
+function only(reason: unknown) {
+  if (reason instanceof ApiError && reason.status === 401) throw reason;
+}
+
+/** Normalize an EIN to its 9 digits for use as a map key. */
+function einKey(ein: string): string {
+  return ein.replace(/\D/g, "");
+}
+
 export const handler = define.handlers({
   async GET(ctx) {
     const api = ctx.state.api;
@@ -59,12 +68,14 @@ export const handler = define.handlers({
     const hasQuery = !!(filters.q || filters.ein || filters.state ||
       filters.city || filters.type || filters.sector || filters.grantmaker);
 
-    // Vocab for dropdowns (best-effort).
-    const vocab = await Promise.allSettled([
+    // Vocab for dropdowns + the highest (super-composite) model version, which
+    // backs the overall score. listModels may 403 for non-admins — tolerate it.
+    const meta = await Promise.allSettled([
       api.orgs.states(),
       api.orgs.sectors(),
+      api.admin.listModels(),
     ]);
-    for (const r of vocab) {
+    for (const r of meta) {
       if (
         r.status === "rejected" && r.reason instanceof ApiError &&
         r.reason.status === 401
@@ -72,12 +83,21 @@ export const handler = define.handlers({
         throw r.reason;
       }
     }
-    const states = vocab[0].status === "fulfilled" ? vocab[0].value.states : [];
-    const sectors = vocab[1].status === "fulfilled"
-      ? vocab[1].value.sectors
+    const states = meta[0].status === "fulfilled" ? meta[0].value.states : [];
+    const sectors = meta[1].status === "fulfilled" ? meta[1].value.sectors : [];
+    const models: ModelSummary[] = meta[2].status === "fulfilled"
+      ? meta[2].value.models ?? []
       : [];
+    // Prefer a super_composite (the overall score); else the highest version.
+    const overallVersion = models.length
+      ? Math.max(
+        ...(models.some((m) => m.model_kind === "super_composite")
+          ? models.filter((m) => m.model_kind === "super_composite")
+          : models).map((m) => m.version),
+      )
+      : undefined;
 
-    let results: OrgSummary[] = [];
+    let results: ScoredOrg[] = [];
     let total = 0;
     let error: string | undefined;
 
@@ -101,6 +121,33 @@ export const handler = define.handlers({
       error = err instanceof Error ? err.message : "Search failed.";
     }
 
+    // Overlay overall scores in ONE cheap call: the leaderboard for the same
+    // filter subset returns total_score per org, which we join onto the page.
+    if (results.length && overallVersion !== undefined) {
+      const board = await api.scores.leaderboard({
+        model: overallVersion,
+        sector: filters.sector || undefined,
+        state: filters.state || undefined,
+        city: filters.city || undefined,
+        type: filters.type || undefined,
+        grantmaker: filters.grantmaker ? 1 : undefined,
+        limit: 500,
+      }).catch((e) => {
+        only(e);
+        return undefined;
+      });
+      if (board?.leaderboard?.length) {
+        const byEin = new Map<string, number>();
+        for (const row of board.leaderboard) {
+          byEin.set(einKey(row.ein), row.total_score);
+        }
+        results = results.map((o) => ({
+          ...o,
+          score100: to100(byEin.get(einKey(o.ein))),
+        }));
+      }
+    }
+
     return page<Data>({
       filters,
       hasQuery,
@@ -109,6 +156,7 @@ export const handler = define.handlers({
       offset,
       states,
       sectors,
+      overallVersion,
       error,
     });
   },
@@ -120,6 +168,153 @@ const TYPE_OPTIONS = [
   { value: "foundation", label: "Foundation" },
   { value: "other", label: "Other" },
 ];
+
+/** Up-to-two-letter initials for the avatar square. */
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("") || "?";
+}
+
+function OrgCard(props: { org: ScoredOrg }) {
+  const o = props.org;
+  const addr = o.address;
+  const loc = addr?.city
+    ? `${addr.city}${addr.state ? `, ${addr.state}` : ""}`
+    : "—";
+  const score = o.score100 ?? null;
+  const hasScore = score !== null && score !== undefined;
+  const band = hasScore ? scoreBand(score) : null;
+
+  return (
+    <a
+      href={`/orgs/${o.ein}`}
+      class="card card-hover flex flex-col"
+      style={{ borderRadius: "16px", padding: "20px" }}
+    >
+      {/* Identity */}
+      <div class="mb-4 flex items-start gap-3">
+        <div
+          class="flex shrink-0 items-center justify-center font-display font-bold text-white"
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "11px",
+            background: "#192a54",
+            fontSize: "15px",
+          }}
+        >
+          {initials(o.name)}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div
+            class="truncate font-bold leading-tight text-navy"
+            style={{ fontSize: "14.5px", letterSpacing: "-0.01em" }}
+          >
+            {o.name}
+          </div>
+          <div class="mt-0.5 text-faint" style={{ fontSize: "11.5px" }}>
+            {loc}
+          </div>
+        </div>
+      </div>
+
+      {/* Score */}
+      {hasScore
+        ? (
+          <>
+            <div class="mb-3.5 flex items-end gap-2">
+              <span
+                class="font-display font-bold text-navy"
+                style={{
+                  fontSize: "40px",
+                  lineHeight: "0.85",
+                  letterSpacing: "-0.03em",
+                }}
+              >
+                {score}
+              </span>
+              <span class="text-faint" style={{ fontSize: "13px" }}>/100</span>
+              <span class="ml-auto">
+                <GradePill value={score} band={band ?? undefined} />
+              </span>
+            </div>
+            <div class="mb-4">
+              <BandBar value={score} height={7} />
+            </div>
+          </>
+        )
+        : (
+          <div class="mb-4">
+            <div class="flex items-end gap-2">
+              <span
+                class="font-display font-bold text-faint"
+                style={{
+                  fontSize: "40px",
+                  lineHeight: "0.85",
+                  letterSpacing: "-0.03em",
+                }}
+              >
+                —
+              </span>
+              <span
+                class="ml-auto mono uppercase text-faint"
+                style={{ fontSize: "10.5px", letterSpacing: ".12em" }}
+              >
+                Unscored
+              </span>
+            </div>
+            <div
+              class="mt-3.5 overflow-hidden rounded-full bg-line"
+              style={{ height: "7px" }}
+            />
+          </div>
+        )}
+
+      {/* Footer mini-stats */}
+      <div class="mt-auto flex items-center justify-between border-t border-line-soft pt-3">
+        <div>
+          <div class="text-faint" style={{ fontSize: "10.5px" }}>Type</div>
+          <div
+            class="mt-0.5 font-semibold text-ink"
+            style={{ fontSize: "12.5px" }}
+          >
+            {o.org_type ? titleCase(o.org_type) : "—"}
+            {o.is_grantmaker && (
+              <span class="ml-1 text-faint" style={{ fontSize: "11px" }}>
+                · Grantmaker
+              </span>
+            )}
+          </div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div class="text-faint" style={{ fontSize: "10.5px" }}>Sector</div>
+          <div
+            class="mt-0.5 max-w-[120px] truncate font-semibold text-ink"
+            style={{ fontSize: "12.5px" }}
+          >
+            {o.sector_name ?? o.sector_code ?? "—"}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div class="text-faint" style={{ fontSize: "10.5px" }}>Tracking</div>
+          <div
+            class="mt-0.5 font-semibold"
+            style={{
+              fontSize: "12.5px",
+              color: o.following ? "#2f7d5b" : "#9aa3b5",
+            }}
+          >
+            {o.following ? "Following" : "—"}
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+}
 
 export default define.page<typeof handler>((ctx) => {
   const { data, state } = ctx;
@@ -139,185 +334,246 @@ export default define.page<typeof handler>((ctx) => {
     return `/search?${sp.toString()}`;
   };
 
+  const from = data.total === 0 ? 0 : data.offset + 1;
+  const to = Math.min(data.offset + LIMIT, data.total);
+  const hasPrev = data.offset > 0;
+  const hasNext = data.offset + LIMIT < data.total;
+
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
-      <PageHeader
-        title="Search organizations"
-        subtitle="Find nonprofits and foundations by name, EIN, sector, or region."
-      />
+      {/* Header */}
+      <div class="mb-5">
+        <div class="section-title">Organization Directory</div>
+        <h1
+          class="mt-2 font-display font-bold text-navy"
+          style={{
+            fontSize: "34px",
+            lineHeight: "1.05",
+            letterSpacing: "-0.025em",
+          }}
+        >
+          Search organizations
+        </h1>
+      </div>
 
-      <form method="GET" class="card card-pad mb-6">
-        <div class="grid gap-4 md:grid-cols-3">
-          <div class="md:col-span-2">
-            <label class="label" for="q">Name</label>
+      {/* Search + filters (GET form, no island) */}
+      <form method="GET" class="mb-4">
+        <div class="flex flex-wrap items-end gap-3">
+          {/* Prominent name search with navy border + magnifier */}
+          <label
+            class="flex min-w-[280px] flex-1 items-center gap-2.5 bg-surface"
+            style={{
+              border: "1.5px solid #192a54",
+              borderRadius: "12px",
+              height: "46px",
+              padding: "0 16px",
+              boxShadow: "0 1px 2px rgba(25,42,84,.05)",
+            }}
+          >
+            <svg
+              width="17"
+              height="17"
+              viewBox="0 0 18 18"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="5.6"
+                stroke="#192a54"
+                stroke-width="1.7"
+              />
+              <path
+                d="M12.4 12.4l3.2 3.2"
+                stroke="#192a54"
+                stroke-width="1.7"
+                stroke-linecap="round"
+              />
+            </svg>
             <input
-              class="input"
-              id="q"
               name="q"
               value={f.q}
-              placeholder="Organization name…"
+              placeholder="Search by name, EIN, or city"
+              class="min-w-0 flex-1 border-none bg-transparent text-ink outline-none"
+              style={{ fontSize: "14.5px" }}
             />
-          </div>
-          <div>
-            <label class="label" for="ein">EIN</label>
-            <input
-              class="input"
-              id="ein"
-              name="ein"
-              value={f.ein}
-              placeholder="12-3456789"
-            />
-          </div>
-          <div>
-            <label class="label" for="state">State</label>
-            <select class="select" id="state" name="state">
-              <option value="">Any state</option>
-              {data.states.map((s) => (
-                <option value={s.code} selected={s.code === f.state}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label class="label" for="city">City</label>
-            <input
-              class="input"
-              id="city"
-              name="city"
-              value={f.city}
-              placeholder="City"
-            />
-          </div>
-          <div>
-            <label class="label" for="sector">Sector</label>
-            <select class="select" id="sector" name="sector">
-              <option value="">Any sector</option>
-              {data.sectors.map((s) => (
-                <option value={s.code} selected={s.code === f.sector}>
-                  {s.code} — {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label class="label" for="type">Type</label>
-            <select class="select" id="type" name="type">
-              {TYPE_OPTIONS.map((o) => (
-                <option value={o.value} selected={o.value === f.type}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div class="flex items-end gap-4">
-            <label class="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                name="grantmaker"
-                value="1"
-                checked={f.grantmaker}
-              />
-              Grantmakers only
-            </label>
-            <label class="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                name="fuzzy"
-                value="0"
-                checked={!f.fuzzy}
-              />
-              Exact match
-            </label>
-          </div>
+          </label>
         </div>
-        <div class="mt-4 flex gap-2">
-          <button type="submit" class="btn btn-primary">Search</button>
-          <a href="/search" class="btn btn-secondary">Clear</a>
+
+        {/* Filter selects rendered as navy-bordered chips */}
+        <div class="mt-3 flex flex-wrap items-center gap-2.5">
+          <input
+            class="input"
+            name="ein"
+            value={f.ein}
+            placeholder="EIN"
+            style={{ height: "40px", width: "150px", borderRadius: "999px" }}
+          />
+          <select
+            class="select"
+            name="state"
+            style={{ height: "40px", width: "auto", borderRadius: "999px" }}
+          >
+            <option value="">Any state</option>
+            {data.states.map((s) => (
+              <option value={s.code} selected={s.code === f.state}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <input
+            class="input"
+            name="city"
+            value={f.city}
+            placeholder="City"
+            style={{ height: "40px", width: "150px", borderRadius: "999px" }}
+          />
+          <select
+            class="select"
+            name="sector"
+            style={{ height: "40px", width: "auto", borderRadius: "999px" }}
+          >
+            <option value="">Any sector</option>
+            {data.sectors.map((s) => (
+              <option value={s.code} selected={s.code === f.sector}>
+                {s.code} — {s.name}
+              </option>
+            ))}
+          </select>
+          <select
+            class="select"
+            name="type"
+            style={{ height: "40px", width: "auto", borderRadius: "999px" }}
+          >
+            {TYPE_OPTIONS.map((o) => (
+              <option value={o.value} selected={o.value === f.type}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <label
+            class="flex items-center gap-2 text-sm text-muted"
+            style={{
+              border: f.grantmaker ? "1px solid #192a54" : "1px solid #dde2ec",
+              background: f.grantmaker ? "#192a54" : "#fff",
+              color: f.grantmaker ? "#fff" : "#5a6172",
+              borderRadius: "999px",
+              padding: "0 15px",
+              height: "40px",
+              fontWeight: 600,
+            }}
+          >
+            <input
+              type="checkbox"
+              name="grantmaker"
+              value="1"
+              checked={f.grantmaker}
+            />
+            Grantmakers
+          </label>
+          <label
+            class="flex items-center gap-2 text-sm text-muted"
+            style={{
+              border: !f.fuzzy ? "1px solid #192a54" : "1px solid #dde2ec",
+              background: !f.fuzzy ? "#192a54" : "#fff",
+              color: !f.fuzzy ? "#fff" : "#5a6172",
+              borderRadius: "999px",
+              padding: "0 15px",
+              height: "40px",
+              fontWeight: 600,
+            }}
+          >
+            <input type="checkbox" name="fuzzy" value="0" checked={!f.fuzzy} />
+            Exact match
+          </label>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            style={{ height: "40px" }}
+          >
+            Search
+          </button>
+          <a
+            href="/search"
+            class="btn btn-secondary"
+            style={{ height: "40px" }}
+          >
+            Clear
+          </a>
         </div>
       </form>
 
       {data.error && (
-        <div class="mb-4">
-          <ErrorAlert message={data.error} />
+        <div class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {data.error}
         </div>
       )}
 
+      {/* Results meta */}
+      {data.hasQuery && !data.error && data.results.length > 0 && (
+        <div class="mb-3.5 flex items-center justify-between">
+          <div class="text-sm text-muted">
+            {data.total} organization{data.total === 1 ? "" : "s"} · sorted by
+            {" "}
+            <strong class="font-semibold text-ink">relevance</strong>
+          </div>
+          <div
+            class="mono uppercase text-faint"
+            style={{ fontSize: "11px", letterSpacing: ".12em" }}
+          >
+            {from}–{to}
+          </div>
+        </div>
+      )}
+
+      {/* Body */}
       {!data.hasQuery
         ? (
-          <EmptyState
-            title="Enter a search above"
-            hint="Search by name (fuzzy by default), EIN prefix, or filter by state, sector, and type."
-          />
+          <div class="card card-pad text-center text-muted">
+            <p class="font-medium text-ink">Enter a search above</p>
+            <p class="mt-1 text-sm">
+              Search by name (fuzzy by default), EIN prefix, or filter by state,
+              sector, and type.
+            </p>
+          </div>
         )
         : data.results.length === 0
         ? (
-          <EmptyState
-            title="No organizations matched"
-            hint="Try broadening your filters."
-          />
+          <div
+            class="text-center text-faint"
+            style={{ padding: "60px 20px", fontSize: "14px" }}
+          >
+            No organizations match your search.
+          </div>
         )
         : (
           <>
-            <Table
-              head={
-                <>
-                  <th>Organization</th>
-                  <th>EIN</th>
-                  <th>Type</th>
-                  <th>Sector</th>
-                  <th>Location</th>
-                </>
-              }
-            >
-              {data.results.map((o) => (
-                <tr>
-                  <td>
-                    <a href={`/orgs/${o.ein}`} class="link font-medium">
-                      {o.name}
-                    </a>
-                    {o.following && (
-                      <span class="ml-2">
-                        <Badge variant="green">Following</Badge>
-                      </span>
-                    )}
-                  </td>
-                  <td class="tabular-nums text-slate-500">
-                    {formatEin(o.ein)}
-                  </td>
-                  <td>
-                    {o.org_type
-                      ? (
-                        <Badge
-                          variant={o.org_type === "foundation"
-                            ? "amber"
-                            : "blue"}
-                        >
-                          {titleCase(o.org_type)}
-                        </Badge>
-                      )
-                      : <span class="text-slate-400">—</span>}
-                    {o.is_grantmaker && (
-                      <span class="ml-1">
-                        <Badge variant="gray">Grantmaker</Badge>
-                      </span>
-                    )}
-                  </td>
-                  <td class="text-slate-600">{o.sector_name ?? "—"}</td>
-                  <td class="text-slate-600">
-                    {o.address?.city
-                      ? `${o.address.city}, ${o.address.state ?? ""}`
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </Table>
-            <Pagination
-              total={data.total}
-              limit={LIMIT}
-              offset={data.offset}
-              makeHref={makeHref}
-            />
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {data.results.map((o) => <OrgCard key={o.ein} org={o} />)}
+            </div>
+
+            {/* Pagination — Load more / Prev-Next */}
+            <div class="mt-7 flex items-center justify-center gap-3">
+              {hasPrev && (
+                <a
+                  href={makeHref(Math.max(0, data.offset - LIMIT))}
+                  class="btn btn-secondary"
+                  style={{ height: "42px", borderRadius: "11px" }}
+                >
+                  ← Previous
+                </a>
+              )}
+              {hasNext && (
+                <a
+                  href={makeHref(data.offset + LIMIT)}
+                  class="btn btn-secondary"
+                  style={{ height: "42px", borderRadius: "11px" }}
+                >
+                  Load more organizations
+                </a>
+              )}
+            </div>
           </>
         )}
     </Layout>

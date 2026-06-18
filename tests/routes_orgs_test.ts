@@ -97,8 +97,8 @@ Deno.test("GET /orgs/:ein renders the org dashboard", async () => {
   });
   assertEquals(res.status, 200);
   assertStringIncludes(res.body, "Acme Nonprofit");
-  assertStringIncludes(res.body, "Overall score");
-  assertStringIncludes(res.body, "Score history");
+  assertStringIncludes(res.body, "OVERALL");
+  assertStringIncludes(res.body, "Financial picture");
 });
 
 Deno.test("POST /orgs/:ein follow redirects back", async () => {

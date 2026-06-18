@@ -1,17 +1,8 @@
+import type { ComponentChildren } from "preact";
 import { define } from "../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../lib/api/mod.ts";
 import { Layout } from "../components/Layout.tsx";
-import {
-  Badge,
-  Card,
-  EmptyState,
-  ErrorAlert,
-  InfoAlert,
-  PageHeader,
-  Section,
-  Table,
-} from "../components/ui.tsx";
 import { titleCase } from "../lib/format.ts";
 import { isAdmin } from "../lib/auth.ts";
 import { listModelOptions, type ModelOption } from "../lib/models.ts";
@@ -54,6 +45,10 @@ interface Data {
   models: ModelOption[];
   kinds: CodeNameDesc[];
   types: CodeNameDesc[];
+  // Pillar → matched registered model + its factor names (feature chips).
+  pillarFactors: Record<string, string[]>;
+  // Highest super-composite/composite version for the banner link, if any.
+  compositeVersion?: number;
   // Selected model factor breakdown (?version=).
   selectedVersion?: number;
   factors?: FactorsResponse;
@@ -94,6 +89,87 @@ const SKELETON = `{
   ]
 }`;
 
+// The four scoring pillars surfaced in the design comp. `type` maps to the
+// API's score_model.model_type vocabulary (financial / whole_person /
+// governance / christ_centeredness). `derived` drives the "990-derived"
+// (blue dot) vs "Qualitative" (gray dot) source tag.
+interface Pillar {
+  type: string;
+  name: string;
+  derived: boolean;
+  desc: string;
+  // Fallback feature chips + source when no registered model matches the type.
+  features: string[];
+  source: string;
+}
+
+const PILLARS: Pillar[] = [
+  {
+    type: "financial",
+    name: "Financial",
+    derived: true,
+    desc:
+      "Fiscal health: operating reserves, program efficiency, revenue resilience, and fundraising cost.",
+    features: [
+      "Liquidity & Reserves",
+      "Program Efficiency",
+      "Revenue Resilience",
+      "Fundraising Efficiency",
+    ],
+    source: "990 · Parts VIII · IX · X",
+  },
+  {
+    type: "whole_person",
+    name: "Whole-Person Impact",
+    derived: false,
+    desc:
+      "Breadth of impact across the spiritual, mental, physical, educational, and social dimensions of a person.",
+    features: ["Spiritual", "Mental", "Physical", "Educational", "Social"],
+    source: "Annual report + outcome surveys",
+  },
+  {
+    type: "governance",
+    name: "Leadership",
+    derived: true,
+    desc:
+      "Board independence, governance policies, executive tenure, compensation reasonableness, and succession.",
+    features: [
+      "Board Independence",
+      "Governance Policies",
+      "Exec Compensation",
+      "Tenure & Succession",
+    ],
+    source: "990 · Parts VI · VII",
+  },
+  {
+    type: "christ_centeredness",
+    name: "Christ-Centered & Mission",
+    derived: false,
+    desc:
+      "Clarity and consistency of a gospel-centered mission across filings, programs, and public materials.",
+    features: [
+      "Mission Statement",
+      "Program Descriptions",
+      "Public Materials",
+      "Statement of Faith",
+    ],
+    source: "990 · Parts I · III + narrative",
+  },
+];
+
+/** Find the best registered model matching a pillar's type (lowest version). */
+function modelForType(
+  models: ModelOption[],
+  type: string,
+): ModelOption | undefined {
+  return models
+    .filter((m) =>
+      m.type === type && m.kind !== "composite" &&
+      m.kind !== "super_composite"
+    )
+    .sort((a, b) => a.version - b.version)[0];
+}
+
 export const handler = define.handlers({
   async GET(ctx) {
     const api = ctx.state.api;
@@ -130,7 +206,36 @@ export const handler = define.handlers({
     const kinds = kindsR.status === "fulfilled" ? kindsR.value.kinds ?? [] : [];
     const types = typesR.status === "fulfilled" ? typesR.value.types ?? [] : [];
 
-    // Factor breakdown for a selected model version.
+    // Banner link target: the highest composite/super-composite version, else
+    // the highest model version, else none.
+    const composites = models.filter((m) =>
+      m.kind === "super_composite" || m.kind === "composite"
+    );
+    const compositeVersion = (composites.length ? composites : models)
+      .map((m) => m.version)
+      .sort((a, b) => b - a)[0];
+
+    // Pull factor names for each matched pillar model (feature chips). These
+    // are independent reads — fan them out and tolerate per-model failure.
+    const pillarModels = PILLARS
+      .map((p) => ({ type: p.type, model: modelForType(models, p.type) }))
+      .filter((x) => x.model !== undefined) as Array<
+        { type: string; model: ModelOption }
+      >;
+    const factorResults = await Promise.allSettled(
+      pillarModels.map((x) => api.scores.factors(x.model.version)),
+    );
+    const pillarFactors: Record<string, string[]> = {};
+    factorResults.forEach((r, i) => {
+      if (r.status === "rejected") {
+        only(r.reason);
+        return;
+      }
+      const names = (r.value.factors ?? []).map((f) => f.name).filter(Boolean);
+      if (names.length) pillarFactors[pillarModels[i].type] = names;
+    });
+
+    // Factor breakdown for an explicitly selected model version (inspector).
     let factors: FactorsResponse | undefined;
     let factorsError: string | undefined;
     if (selectedVersion !== undefined) {
@@ -170,6 +275,8 @@ export const handler = define.handlers({
       models,
       kinds,
       types,
+      pillarFactors,
+      compositeVersion,
       selectedVersion,
       factors,
       factorsError,
@@ -225,29 +332,188 @@ export const handler = define.handlers({
   },
 });
 
-function kindVariant(
-  kind?: string | null,
-): "gray" | "blue" | "green" | "amber" | "red" {
-  if (kind === "composite") return "blue";
-  if (kind === "super_composite") return "amber";
-  return "gray";
+/** A small mono uppercase eyebrow label. */
+function Eyebrow(props: { children: ComponentChildren; class?: string }) {
+  return (
+    <div
+      class={`mono uppercase ${props.class ?? "text-faint"}`}
+      style={{ fontSize: "11px", letterSpacing: ".16em" }}
+    >
+      {props.children}
+    </div>
+  );
 }
 
-function typeVariant(
-  type?: string | null,
-): "gray" | "blue" | "green" | "amber" | "red" {
-  switch (type) {
-    case "financial":
-      return "green";
-    case "governance":
-      return "blue";
-    case "whole_person":
-      return "amber";
-    case "christ_centeredness":
-      return "red";
-    default:
-      return "gray";
-  }
+/** The 990-derived (blue dot) / Qualitative (gray dot) source tag. */
+function SourceTag(props: { derived: boolean }) {
+  return (
+    <span
+      class="mono inline-flex items-center gap-1.5 rounded-md px-2.5 py-1"
+      style={{
+        fontSize: "11.5px",
+        color: props.derived ? "#2f4a85" : "#8893ab",
+        background: props.derived ? "#eef2fa" : "#f3f5f9",
+      }}
+    >
+      <span
+        class="inline-block rounded-full"
+        style={{
+          width: "6px",
+          height: "6px",
+          background: props.derived ? "#3a5da8" : "#aeb6c7",
+        }}
+      />
+      {props.derived ? "990-derived" : "Qualitative"}
+    </span>
+  );
+}
+
+/** One pillar card in the 2×2 grid. Whole card links to the model inspector. */
+function PillarCard(
+  props: { pillar: Pillar; model?: ModelOption; features: string[] },
+) {
+  const { pillar, model, features } = props;
+  const chips = features.length ? features : pillar.features;
+  const href = model ? `/models?version=${model.version}` : undefined;
+  const inputs = model ? "Registered" : `${pillar.features.length} signals`;
+  const inner = (
+    <>
+      {/* header row */}
+      <div class="mb-3.5 flex items-start justify-between gap-3">
+        <div>
+          <div class="mb-2 flex items-center gap-2.5">
+            <h2
+              class="font-display font-bold text-navy"
+              style={{ fontSize: "19px", letterSpacing: "-0.015em" }}
+            >
+              {pillar.name}
+            </h2>
+            {pillar.type === "financial" && (
+              <span
+                class="mono font-bold"
+                style={{
+                  fontSize: "10px",
+                  color: "#245f45",
+                  background: "#e3efe7",
+                  borderRadius: "5px",
+                  padding: "2px 7px",
+                  letterSpacing: ".04em",
+                }}
+              >
+                WALKTHROUGH
+              </span>
+            )}
+            {!model && (
+              <span
+                class="mono"
+                style={{
+                  fontSize: "10px",
+                  color: "#9aa3b5",
+                  background: "#f3f5f9",
+                  borderRadius: "5px",
+                  padding: "2px 7px",
+                  letterSpacing: ".04em",
+                }}
+              >
+                PENDING
+              </span>
+            )}
+          </div>
+          <SourceTag derived={pillar.derived} />
+        </div>
+        <div class="shrink-0 text-right">
+          <div class="text-faint" style={{ fontSize: "10.5px" }}>Weight</div>
+          <div
+            class="font-display font-bold text-navy"
+            style={{ fontSize: "20px" }}
+          >
+            25%
+          </div>
+        </div>
+      </div>
+
+      {/* description */}
+      <p
+        class="text-muted"
+        style={{
+          fontSize: "13.5px",
+          lineHeight: "1.55",
+          margin: "0 0 16px",
+          textWrap: "pretty",
+        }}
+      >
+        {pillar.desc}
+      </p>
+
+      {/* feature chips */}
+      <div class="mb-4 flex flex-wrap gap-1.5">
+        {chips.map((f) => (
+          <span
+            class="text-muted"
+            style={{
+              fontSize: "11.5px",
+              background: "#f3f5f9",
+              border: "1px solid #e7ebf2",
+              borderRadius: "6px",
+              padding: "4px 9px",
+            }}
+          >
+            {titleCase(f)}
+          </span>
+        ))}
+      </div>
+
+      {/* footer meta */}
+      <div
+        class="mt-auto flex items-center justify-between gap-3"
+        style={{ borderTop: "1px solid #f0f2f7", paddingTop: "14px" }}
+      >
+        <div class="flex gap-4">
+          <div>
+            <div class="text-faint" style={{ fontSize: "10.5px" }}>Inputs</div>
+            <div
+              class="font-semibold"
+              style={{ fontSize: "12.5px", color: "#3a4150" }}
+            >
+              {inputs}
+            </div>
+          </div>
+          <div>
+            <div class="text-faint" style={{ fontSize: "10.5px" }}>Source</div>
+            <div
+              class="mono font-semibold"
+              style={{ fontSize: "12.5px", color: "#3a4150" }}
+            >
+              {pillar.source}
+            </div>
+          </div>
+        </div>
+        <span
+          class="font-semibold whitespace-nowrap"
+          style={{ fontSize: "13px", color: model ? "#3a5da8" : "#aeb6c7" }}
+        >
+          {model ? "Walk the model →" : "No model yet"}
+        </span>
+      </div>
+    </>
+  );
+
+  const cardStyle = { borderRadius: "18px" };
+  return href
+    ? (
+      <a
+        href={href}
+        class="card card-hover card-pad flex flex-col no-underline"
+        style={cardStyle}
+      >
+        {inner}
+      </a>
+    )
+    : (
+      <div class="card card-pad flex flex-col" style={cardStyle}>
+        {inner}
+      </div>
+    );
 }
 
 /** Parse a factor's JSON-encoded inputs string into a readable list. */
@@ -283,274 +549,467 @@ function benchmark(f: FactorDef): string {
 
 export default define.page<typeof handler>((ctx) => {
   const { data, state } = ctx;
+  const bannerHref = data.compositeVersion !== undefined
+    ? `/models?version=${data.compositeVersion}`
+    : undefined;
 
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
-      <PageHeader
-        title="Scoring models"
-        subtitle="Browse the template catalog, inspect factor definitions, and build new models."
-      />
-
+      {/* flash messages */}
       {data.msg && (
-        <div class="mb-4">
-          <InfoAlert>{data.msg}</InfoAlert>
+        <div
+          class="mb-4 rounded-xl px-4 py-3 text-sm"
+          style={{
+            background: "#e3efe7",
+            border: "1px solid #cbe2d3",
+            color: "#245f45",
+          }}
+        >
+          {data.msg}
         </div>
       )}
       {data.err && (
-        <div class="mb-4">
-          <ErrorAlert message={data.err} />
+        <div
+          class="mb-4 rounded-xl px-4 py-3 text-sm"
+          style={{
+            background: "#fbeaea",
+            border: "1px solid #f0cdcd",
+            color: "#9a2c2c",
+          }}
+        >
+          {data.err}
         </div>
       )}
 
-      {/* Template catalog */}
-      <Section title="Model catalog (templates)">
-        {data.templates.length === 0
-          ? (
-            <EmptyState
-              title="No templates available"
-              hint="The template catalog is empty or could not be reached."
-            />
-          )
-          : (
-            <Table
-              head={
-                <>
-                  <th>Template</th>
-                  <th>Kind</th>
-                  <th>Type</th>
-                  <th>Factors</th>
-                  <th></th>
-                </>
-              }
-            >
-              {data.templates.map((t) => (
-                <tr>
-                  <td>
-                    <a
-                      href={`/models?template=${encodeURIComponent(t.code)}`}
-                      class="link font-medium"
-                    >
-                      {t.name}
-                    </a>
-                    {t.description && (
-                      <div class="mt-0.5 text-xs text-slate-500">
-                        {t.description}
-                      </div>
-                    )}
-                    <div class="mt-0.5 text-xs text-slate-400">
-                      <code>{t.code}</code> · v{t.version}
-                    </div>
-                  </td>
-                  <td>
-                    <Badge variant={kindVariant(t.kind)}>
-                      {titleCase(t.kind)}
-                    </Badge>
-                  </td>
-                  <td>
-                    <Badge variant={typeVariant(t.type)}>
-                      {titleCase(t.type)}
-                    </Badge>
-                  </td>
-                  <td class="tabular-nums text-slate-600">{t.factor_count}</td>
-                  <td class="space-x-3 whitespace-nowrap">
-                    <a
-                      href={`/models?version=${t.version}`}
-                      class="link text-sm"
-                    >
-                      View factors
-                    </a>
-                    {data.admin && (
-                      <a
-                        href={`/models?template=${encodeURIComponent(t.code)}`}
-                        class="link text-sm"
-                      >
-                        Use as template
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </Table>
-          )}
-      </Section>
-
-      {/* Registered models */}
-      <Section title="Registered models">
-        {data.models.length === 0
-          ? (
-            <EmptyState
-              title="No registered models"
-              hint={data.admin
-                ? "No models have been created yet. Use the builder below to create one."
-                : "No models are available to inspect."}
-            />
-          )
-          : (
-            <Table
-              head={
-                <>
-                  <th>Model</th>
-                  <th>Kind</th>
-                  <th>Type</th>
-                  <th></th>
-                </>
-              }
-            >
-              {data.models.map((m) => (
-                <tr>
-                  <td class="font-medium text-slate-800">{m.label}</td>
-                  <td>
-                    {m.kind
-                      ? (
-                        <Badge variant={kindVariant(m.kind)}>
-                          {titleCase(m.kind)}
-                        </Badge>
-                      )
-                      : <span class="text-slate-400">—</span>}
-                  </td>
-                  <td>
-                    {m.type
-                      ? (
-                        <Badge variant={typeVariant(m.type)}>
-                          {titleCase(m.type)}
-                        </Badge>
-                      )
-                      : <span class="text-slate-400">—</span>}
-                  </td>
-                  <td class="whitespace-nowrap">
-                    <a
-                      href={`/models?version=${m.version}`}
-                      class="link text-sm"
-                    >
-                      View factors
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </Table>
-          )}
-      </Section>
-
-      {/* Factor breakdown for a selected version */}
-      {data.selectedVersion !== undefined && (
-        <Section
-          title={`Factors — v${data.selectedVersion}`}
-          actions={<a href="/models" class="link text-sm">Clear selection</a>}
+      {/* header */}
+      <div class="mb-7 flex flex-wrap items-end justify-between gap-5">
+        <div style={{ maxWidth: "640px" }}>
+          <Eyebrow class="text-faint mb-2">Scoring Models</Eyebrow>
+          <h1
+            class="font-display font-bold text-navy"
+            style={{
+              fontSize: "34px",
+              lineHeight: "1.05",
+              letterSpacing: "-0.025em",
+              margin: "0 0 10px",
+            }}
+          >
+            Models &amp; methodology
+          </h1>
+          <p
+            class="text-muted"
+            style={{
+              fontSize: "15px",
+              lineHeight: "1.6",
+              margin: "0",
+              textWrap: "pretty",
+            }}
+          >
+            Every OpenReturn score is produced by a transparent, auditable
+            model. Open any model to walk its logic — from the headline score
+            down to the exact 990 line item each variable was sourced from.
+          </p>
+        </div>
+        <span
+          class="mono bg-surface text-muted"
+          style={{
+            fontSize: "12px",
+            border: "1px solid #dde2ec",
+            borderRadius: "9px",
+            padding: "8px 13px",
+          }}
         >
+          Methodology v3.0
+        </span>
+      </div>
+
+      {/* composite model banner */}
+      {(() => {
+        const bannerInner = (
+          <div class="flex flex-wrap items-center gap-6">
+            <div style={{ flex: "1", minWidth: "280px" }}>
+              <div class="mb-3 flex items-center gap-3">
+                <span
+                  class="mono uppercase"
+                  style={{
+                    fontSize: "10.5px",
+                    letterSpacing: ".14em",
+                    color: "#9fb6e6",
+                  }}
+                >
+                  Composite
+                </span>
+                <span
+                  class="mono"
+                  style={{
+                    fontSize: "11px",
+                    color: "#cdd9f0",
+                    background: "rgba(159,182,230,.18)",
+                    borderRadius: "6px",
+                    padding: "2px 8px",
+                  }}
+                >
+                  {data.compositeVersion !== undefined
+                    ? `v${data.compositeVersion}`
+                    : "v3.0"}
+                </span>
+              </div>
+              <h2
+                class="font-display font-bold"
+                style={{
+                  fontSize: "24px",
+                  letterSpacing: "-0.02em",
+                  margin: "0 0 8px",
+                  color: "#fff",
+                }}
+              >
+                OpenReturn Score
+              </h2>
+              <p
+                style={{
+                  fontSize: "14px",
+                  lineHeight: "1.55",
+                  color: "rgba(238,241,247,.74)",
+                  margin: "0",
+                  maxWidth: "560px",
+                  textWrap: "pretty",
+                }}
+              >
+                A weighted roll-up of the four pillar models into a single 0–100
+                score and letter grade. Each pillar contributes equally; the
+                composite is what surfaces across the dashboard, search, and
+                reports.
+              </p>
+            </div>
+            {/* pillar weighting bar */}
+            <div style={{ flexShrink: "0", minWidth: "300px" }}>
+              <div
+                class="mb-3 flex overflow-hidden"
+                style={{ height: "14px", borderRadius: "999px" }}
+              >
+                <div style={{ width: "25%", background: "#9fb6e6" }} />
+                <div
+                  style={{
+                    width: "25%",
+                    background: "#7e9ad8",
+                    borderLeft: "2px solid #192A54",
+                  }}
+                />
+                <div
+                  style={{
+                    width: "25%",
+                    background: "#9fb6e6",
+                    borderLeft: "2px solid #192A54",
+                  }}
+                />
+                <div
+                  style={{
+                    width: "25%",
+                    background: "#7e9ad8",
+                    borderLeft: "2px solid #192A54",
+                  }}
+                />
+              </div>
+              <div
+                class="grid"
+                style={{
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "6px 16px",
+                  fontSize: "12px",
+                  color: "#cdd9f0",
+                }}
+              >
+                <span>● Financial · 25%</span>
+                <span>● Whole-Person · 25%</span>
+                <span>● Leadership · 25%</span>
+                <span>● Christ-Centered · 25%</span>
+              </div>
+            </div>
+          </div>
+        );
+        const bannerStyle = {
+          background: "#192A54",
+          borderRadius: "18px",
+          padding: "26px 30px",
+          boxShadow: "0 20px 44px -28px rgba(25,42,84,.5)",
+        };
+        return bannerHref
+          ? (
+            <a
+              href={bannerHref}
+              class="mb-6 block no-underline"
+              style={bannerStyle}
+            >
+              {bannerInner}
+            </a>
+          )
+          : (
+            <div class="mb-6 block" style={bannerStyle}>
+              {bannerInner}
+            </div>
+          );
+      })()}
+
+      {/* pillar models grid (2×2) */}
+      <div
+        class="grid"
+        style={{ gridTemplateColumns: "1fr 1fr", gap: "16px" }}
+      >
+        {PILLARS.map((p) => (
+          <PillarCard
+            pillar={p}
+            model={modelForType(data.models, p.type)}
+            features={data.pillarFactors[p.type] ?? []}
+          />
+        ))}
+      </div>
+
+      {/* methodology note */}
+      <div
+        class="mt-6 flex items-start gap-5 bg-surface"
+        style={{
+          border: "1px solid #dde2ec",
+          borderRadius: "16px",
+          padding: "22px 24px",
+        }}
+      >
+        <div
+          class="flex shrink-0 items-center justify-center"
+          style={{
+            width: "34px",
+            height: "34px",
+            borderRadius: "9px",
+            background: "#eef2fa",
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+            <path
+              d="M10 2.5l6.5 3v4.2c0 4-2.8 6.7-6.5 7.8-3.7-1.1-6.5-3.8-6.5-7.8V5.5z"
+              stroke="#3a5da8"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M7.3 10l1.9 1.9 3.6-3.8"
+              stroke="#3a5da8"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+        <div>
+          <div
+            class="font-bold text-navy"
+            style={{ fontSize: "14px", marginBottom: "5px" }}
+          >
+            Full provenance, every score
+          </div>
+          <p
+            class="text-muted"
+            style={{
+              fontSize: "13.5px",
+              lineHeight: "1.6",
+              margin: "0",
+              textWrap: "pretty",
+            }}
+          >
+            Models marked{" "}
+            <strong style={{ color: "#3a4150" }}>990-derived</strong>{" "}
+            trace every input to a specific filing, Part, line, and column —
+            with the extracted value, source page, and OCR confidence shown in
+            the walkthrough. Qualitative models cite the originating document
+            and reviewer.
+          </p>
+        </div>
+      </div>
+
+      {/* factor inspector for a selected version (?version=) */}
+      {data.selectedVersion !== undefined && (
+        <div class="mt-8">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h2 class="section-title">
+              Factor walkthrough · v{data.selectedVersion}
+            </h2>
+            <a href="/models" class="link" style={{ fontSize: "13px" }}>
+              Clear selection
+            </a>
+          </div>
           {data.factorsError
-            ? <ErrorAlert message={data.factorsError} />
+            ? (
+              <div
+                class="rounded-xl px-4 py-3 text-sm"
+                style={{
+                  background: "#fbeaea",
+                  border: "1px solid #f0cdcd",
+                  color: "#9a2c2c",
+                }}
+              >
+                {data.factorsError}
+              </div>
+            )
             : !data.factors || data.factors.factors.length === 0
             ? (
-              <EmptyState
-                title="No factors"
-                hint="This model has no factor definitions."
-              />
+              <div
+                class="card card-pad text-muted"
+                style={{ fontSize: "13.5px" }}
+              >
+                This model has no factor definitions.
+              </div>
             )
             : (
-              <>
-                <div class="mb-3 flex flex-wrap items-center gap-2">
+              <div class="card card-pad" style={{ borderRadius: "16px" }}>
+                <div class="mb-4 flex flex-wrap items-center gap-2">
                   {data.factors.model_kind && (
-                    <Badge variant={kindVariant(data.factors.model_kind)}>
+                    <span
+                      class="mono uppercase"
+                      style={{
+                        fontSize: "10.5px",
+                        letterSpacing: ".1em",
+                        color: "#2f4a85",
+                        background: "#eef2fa",
+                        borderRadius: "5px",
+                        padding: "3px 8px",
+                      }}
+                    >
                       {titleCase(data.factors.model_kind)}
-                    </Badge>
+                    </span>
                   )}
                   {data.factors.model_type && (
-                    <Badge variant={typeVariant(data.factors.model_type)}>
+                    <span
+                      class="mono uppercase"
+                      style={{
+                        fontSize: "10.5px",
+                        letterSpacing: ".1em",
+                        color: "#245f45",
+                        background: "#e3efe7",
+                        borderRadius: "5px",
+                        padding: "3px 8px",
+                      }}
+                    >
                       {titleCase(data.factors.model_type)}
-                    </Badge>
+                    </span>
                   )}
                   {data.factors.scoring_mode && (
-                    <Badge
-                      variant={data.factors.scoring_mode === "manual"
-                        ? "amber"
-                        : "gray"}
+                    <span
+                      class="mono uppercase"
+                      style={{
+                        fontSize: "10.5px",
+                        letterSpacing: ".1em",
+                        color: data.factors.scoring_mode === "manual"
+                          ? "#9a6a1c"
+                          : "#5a6172",
+                        background: data.factors.scoring_mode === "manual"
+                          ? "#f6ecd8"
+                          : "#f3f5f9",
+                        borderRadius: "5px",
+                        padding: "3px 8px",
+                      }}
                     >
                       {titleCase(data.factors.scoring_mode)}
-                    </Badge>
+                    </span>
                   )}
                 </div>
-                <Table
-                  head={
-                    <>
-                      <th>Factor</th>
-                      <th>Weight</th>
-                      <th>Formula</th>
-                      <th>Inputs</th>
-                      <th>Direction</th>
-                      <th>Benchmark</th>
-                      <th>Description</th>
-                      <th>Manual scale</th>
-                    </>
-                  }
-                >
-                  {data.factors.factors.map((f) => (
-                    <tr>
-                      <td class="font-medium text-slate-800">{f.name}</td>
-                      <td class="tabular-nums">{f.weight}</td>
-                      <td class="text-slate-600">
-                        {f.formula_type ? <code>{f.formula_type}</code> : "—"}
-                      </td>
-                      <td class="text-slate-600">
-                        <code class="text-xs">{parseInputs(f.inputs)}</code>
-                      </td>
-                      <td class="text-slate-600">{f.direction ?? "—"}</td>
-                      <td class="tabular-nums text-slate-600">
-                        {benchmark(f)}
-                      </td>
-                      <td class="text-slate-500">
-                        {f.formula_description ?? "—"}
-                      </td>
-                      <td class="text-slate-600">{f.manual_scale ?? "—"}</td>
-                    </tr>
-                  ))}
-                </Table>
-              </>
+                <div class="overflow-x-auto">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Factor</th>
+                        <th>Weight</th>
+                        <th>Formula</th>
+                        <th>Inputs</th>
+                        <th>Direction</th>
+                        <th>Benchmark</th>
+                        <th>Description</th>
+                        <th>Manual scale</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.factors.factors.map((f) => (
+                        <tr>
+                          <td class="font-semibold text-navy">{f.name}</td>
+                          <td class="mono tabular-nums">{f.weight}</td>
+                          <td class="text-muted">
+                            {f.formula_type
+                              ? <code class="mono">{f.formula_type}</code>
+                              : "—"}
+                          </td>
+                          <td class="text-muted">
+                            <code class="mono" style={{ fontSize: "11.5px" }}>
+                              {parseInputs(f.inputs)}
+                            </code>
+                          </td>
+                          <td class="text-muted">{f.direction ?? "—"}</td>
+                          <td class="mono tabular-nums text-muted">
+                            {benchmark(f)}
+                          </td>
+                          <td class="text-faint">
+                            {f.formula_description ?? "—"}
+                          </td>
+                          <td class="text-muted">{f.manual_scale ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
-        </Section>
+        </div>
       )}
 
-      {/* Selected template detail (mostly useful as context for the builder) */}
+      {/* selected template detail (context for the builder) */}
       {data.selectedTemplate && (
-        <Section
-          title={`Template — ${data.selectedTemplate}`}
-          actions={<a href="/models" class="link text-sm">Clear selection</a>}
-        >
+        <div class="mt-8">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h2 class="section-title">Template · {data.selectedTemplate}</h2>
+            <a href="/models" class="link" style={{ fontSize: "13px" }}>
+              Clear selection
+            </a>
+          </div>
           {data.templateError
-            ? <ErrorAlert message={data.templateError} />
+            ? (
+              <div
+                class="rounded-xl px-4 py-3 text-sm"
+                style={{
+                  background: "#fbeaea",
+                  border: "1px solid #f0cdcd",
+                  color: "#9a2c2c",
+                }}
+              >
+                {data.templateError}
+              </div>
+            )
             : data.templateDetail
             ? (
-              <Card>
+              <div class="card card-pad" style={{ borderRadius: "16px" }}>
                 <div class="mb-2 flex flex-wrap items-center gap-2">
-                  <span class="font-medium text-slate-800">
+                  <span class="font-semibold text-navy">
                     {data.templateDetail.definition?.model?.description ??
                       data.selectedTemplate}
                   </span>
                   {data.templateDetail.definition?.model?.kind && (
-                    <Badge
-                      variant={kindVariant(
-                        data.templateDetail.definition.model.kind,
-                      )}
+                    <span
+                      class="mono uppercase"
+                      style={{
+                        fontSize: "10.5px",
+                        letterSpacing: ".1em",
+                        color: "#2f4a85",
+                        background: "#eef2fa",
+                        borderRadius: "5px",
+                        padding: "3px 8px",
+                      }}
                     >
                       {titleCase(data.templateDetail.definition.model.kind)}
-                    </Badge>
-                  )}
-                  {data.templateDetail.definition?.model?.type && (
-                    <Badge
-                      variant={typeVariant(
-                        data.templateDetail.definition.model.type,
-                      )}
-                    >
-                      {titleCase(data.templateDetail.definition.model.type)}
-                    </Badge>
+                    </span>
                   )}
                   {data.templateDetail.definition?.model?.version !==
                       undefined && (
-                    <span class="text-xs text-slate-400">
+                    <span class="mono text-faint" style={{ fontSize: "11px" }}>
                       v{data.templateDetail.definition.model.version}
                     </span>
                   )}
                 </div>
-                <p class="text-sm text-slate-500">
+                <p class="text-muted" style={{ fontSize: "13.5px" }}>
                   {data.templateDetail.definition?.factor?.length ?? 0} factor
                   {(data.templateDetail.definition?.factor?.length ?? 0) === 1
                     ? ""
@@ -559,69 +1018,258 @@ export default define.page<typeof handler>((ctx) => {
                     ? " The definition is prefilled in the builder below."
                     : " Sign in as an administrator to create a model from this template."}
                 </p>
-              </Card>
+              </div>
             )
             : (
-              <EmptyState
-                title="Template not found"
-                hint={`No template "${data.selectedTemplate}".`}
-              />
-            )}
-        </Section>
-      )}
-
-      {/* Admin model builder */}
-      {data.admin && (
-        <Section title="Create a model">
-          <Card>
-            <p class="mb-3 text-sm text-slate-500">
-              Paste or edit a model definition (JSON with <code>model</code> and
-              {" "}
-              <code>factor</code>{" "}
-              keys). Use a template above to prefill this form, or start from
-              the skeleton. Validate first with a dry run before creating.
-            </p>
-            <form method="POST">
-              <label class="label" for="definition">
-                Model definition (JSON)
-              </label>
-              <textarea
-                id="definition"
-                name="definition"
-                rows={20}
-                spellcheck={false}
-                class="input font-mono text-xs"
-                style={{ minHeight: "20rem" }}
+              <div
+                class="card card-pad text-muted"
+                style={{ fontSize: "13.5px" }}
               >
-                {data.prefill}
-              </textarea>
-              <div class="mt-4 flex flex-wrap items-center gap-4">
-                <label class="flex items-center gap-2 text-sm text-slate-600">
-                  <input type="checkbox" name="dry_run" value="1" />
-                  Validate only (dry run)
-                </label>
-                <label class="flex items-center gap-2 text-sm text-slate-600">
-                  <input type="checkbox" name="skip_existing" value="1" />
-                  Skip if exists
-                </label>
-                <div class="ml-auto flex gap-2">
-                  <button type="submit" class="btn btn-primary">Submit</button>
-                  <a href="/models" class="btn btn-secondary">Reset</a>
-                </div>
+                No template "{data.selectedTemplate}".
               </div>
-            </form>
-          </Card>
-        </Section>
-      )}
-
-      {!data.admin && (
-        <div class="mt-4">
-          <InfoAlert>
-            Administrator access is required to create models. You can browse
-            the catalog and inspect any model's factor breakdown above.
-          </InfoAlert>
+            )}
         </div>
       )}
+
+      {/* registered models — compact roster linking to the inspector */}
+      {data.models.length > 0 && (
+        <div class="mt-8">
+          <h2 class="section-title mb-3">Registered models</h2>
+          <div class="flex flex-wrap gap-2">
+            {data.models.map((m) => (
+              <a
+                href={`/models?version=${m.version}`}
+                class="card card-hover no-underline"
+                style={{
+                  borderRadius: "10px",
+                  padding: "8px 13px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "9px",
+                }}
+              >
+                <span
+                  class="mono text-faint"
+                  style={{ fontSize: "11px" }}
+                >
+                  v{m.version}
+                </span>
+                <span
+                  class="font-semibold text-navy"
+                  style={{ fontSize: "13px" }}
+                >
+                  {m.label.replace(/^v\d+\s*—\s*/, "")}
+                </span>
+                {m.kind && (
+                  <span
+                    class="mono uppercase"
+                    style={{
+                      fontSize: "9.5px",
+                      letterSpacing: ".08em",
+                      color: "#5a6172",
+                      background: "#f3f5f9",
+                      borderRadius: "5px",
+                      padding: "1px 6px",
+                    }}
+                  >
+                    {titleCase(m.kind)}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* template catalog (prefill picker) */}
+      {data.templates.length > 0 && (
+        <div class="mt-8">
+          <h2 class="section-title mb-3">Model catalog</h2>
+          <div
+            class="grid gap-3"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+            }}
+          >
+            {data.templates.map((t) => (
+              <a
+                href={`/models?template=${encodeURIComponent(t.code)}`}
+                class="card card-hover card-pad block no-underline"
+                style={{ borderRadius: "14px" }}
+              >
+                <div class="mb-1.5 flex items-center gap-2">
+                  <span class="font-semibold text-navy">{t.name}</span>
+                  <span
+                    class="mono"
+                    style={{
+                      fontSize: "10px",
+                      color: "#5a6172",
+                      background: "#f3f5f9",
+                      borderRadius: "5px",
+                      padding: "1px 6px",
+                    }}
+                  >
+                    {titleCase(t.kind)}
+                  </span>
+                </div>
+                {t.description && (
+                  <p
+                    class="text-muted"
+                    style={{ fontSize: "12.5px", lineHeight: "1.5", margin: 0 }}
+                  >
+                    {t.description}
+                  </p>
+                )}
+                <div class="mono text-faint mt-2" style={{ fontSize: "11px" }}>
+                  {t.code} · v{t.version} · {t.factor_count}{" "}
+                  factor{t.factor_count === 1 ? "" : "s"}
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* admin model builder (navy-styled) */}
+      {data.admin
+        ? (
+          <div class="mt-8">
+            <h2 class="section-title mb-3">Create a model</h2>
+            <div
+              class="overflow-hidden"
+              style={{
+                background: "#192A54",
+                borderRadius: "18px",
+                boxShadow: "0 20px 44px -28px rgba(25,42,84,.5)",
+              }}
+            >
+              <div style={{ padding: "24px 28px 0" }}>
+                <span
+                  class="mono uppercase"
+                  style={{
+                    fontSize: "10.5px",
+                    letterSpacing: ".14em",
+                    color: "#9fb6e6",
+                  }}
+                >
+                  Admin · Model builder
+                </span>
+                <p
+                  style={{
+                    fontSize: "13.5px",
+                    lineHeight: "1.55",
+                    color: "rgba(238,241,247,.74)",
+                    margin: "8px 0 0",
+                    maxWidth: "640px",
+                  }}
+                >
+                  Paste or edit a model definition (JSON with{" "}
+                  <code class="mono" style={{ color: "#cdd9f0" }}>model</code>
+                  {" "}
+                  and{" "}
+                  <code class="mono" style={{ color: "#cdd9f0" }}>factor</code>
+                  {" "}
+                  keys). Use a template above to prefill this form, or start
+                  from the skeleton. Validate first with a dry run before
+                  creating.
+                </p>
+              </div>
+              <form method="POST" style={{ padding: "18px 28px 26px" }}>
+                <label
+                  class="mono uppercase block"
+                  for="definition"
+                  style={{
+                    fontSize: "10.5px",
+                    letterSpacing: ".12em",
+                    color: "#9fb6e6",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Model definition (JSON)
+                </label>
+                <textarea
+                  id="definition"
+                  name="definition"
+                  rows={20}
+                  spellcheck={false}
+                  class="mono w-full"
+                  style={{
+                    minHeight: "20rem",
+                    background: "#0f1d3d",
+                    color: "#dbe4f7",
+                    border: "1px solid #2f4170",
+                    borderRadius: "12px",
+                    padding: "14px 16px",
+                    fontSize: "12.5px",
+                    lineHeight: "1.55",
+                    resize: "vertical",
+                  }}
+                >
+                  {data.prefill}
+                </textarea>
+                <div class="mt-4 flex flex-wrap items-center gap-5">
+                  <label
+                    class="flex items-center gap-2"
+                    style={{ fontSize: "13px", color: "#cdd9f0" }}
+                  >
+                    <input type="checkbox" name="dry_run" value="1" />
+                    Validate only (dry run)
+                  </label>
+                  <label
+                    class="flex items-center gap-2"
+                    style={{ fontSize: "13px", color: "#cdd9f0" }}
+                  >
+                    <input type="checkbox" name="skip_existing" value="1" />
+                    Skip if exists
+                  </label>
+                  <div class="ml-auto flex gap-2">
+                    <button
+                      type="submit"
+                      class="font-semibold"
+                      style={{
+                        background: "#fff",
+                        color: "#192A54",
+                        borderRadius: "9px",
+                        padding: "9px 18px",
+                        fontSize: "13.5px",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Submit
+                    </button>
+                    <a
+                      href="/models"
+                      class="font-semibold no-underline"
+                      style={{
+                        color: "#cdd9f0",
+                        border: "1px solid #3a4f82",
+                        borderRadius: "9px",
+                        padding: "9px 18px",
+                        fontSize: "13.5px",
+                      }}
+                    >
+                      Reset
+                    </a>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+        : (
+          <div
+            class="mt-8 rounded-xl px-4 py-3 text-sm"
+            style={{
+              background: "#eef2fa",
+              border: "1px solid #d7e0f2",
+              color: "#2f4a85",
+            }}
+          >
+            Administrator access is required to create models. You can browse
+            the catalog and inspect any model's factor breakdown above.
+          </div>
+        )}
     </Layout>
   );
 });

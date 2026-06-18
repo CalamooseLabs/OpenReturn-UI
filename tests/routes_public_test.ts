@@ -5,7 +5,7 @@ import { jsonResponse } from "./helpers.ts";
 Deno.test("GET / shows the landing page when signed out", async () => {
   const res = await appRequest("/");
   assertEquals(res.status, 200);
-  assertStringIncludes(res.body, "Explore nonprofit financial health");
+  assertStringIncludes(res.body, "Explore the integrity behind the numbers");
 });
 
 Deno.test("GET / shows the dashboard when signed in", async () => {

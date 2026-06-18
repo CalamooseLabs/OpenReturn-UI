@@ -52,9 +52,10 @@ Deno.test("titleCase humanizes codes", () => {
   assertEquals(titleCase(""), "");
 });
 
-Deno.test("scoreColor buckets by threshold", () => {
-  assertEquals(scoreColor(0.8).badge, "badge-green");
-  assertEquals(scoreColor(0.6).badge, "badge-amber");
-  assertEquals(scoreColor(0.3).badge, "badge-red");
+Deno.test("scoreColor buckets by score band (90/80/70)", () => {
+  assertEquals(scoreColor(0.95).badge, "badge-green"); // Strong
+  assertEquals(scoreColor(0.85).badge, "badge-blue"); // Solid
+  assertEquals(scoreColor(0.75).badge, "badge-amber"); // Watch
+  assertEquals(scoreColor(0.5).badge, "badge-red"); // Low
   assertEquals(scoreColor(null).badge, "badge-gray");
 });
