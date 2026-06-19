@@ -55,4 +55,15 @@ export class FinancialsApi extends ApiResource {
   recordObservations(body: Record<string, unknown>) {
     return this.post("/financials/observations", body);
   }
+  /** Hand-edit a fact's value (mints a manual observation for non-manual facts,
+   * updates the manual one in place otherwise) and make it canonical. */
+  editValue(body: {
+    ein: string;
+    fiscal_year: number;
+    concept: string;
+    value: number;
+    note?: string;
+  }) {
+    return this.post<Record<string, unknown>>("/financials/value", body);
+  }
 }

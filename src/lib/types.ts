@@ -139,6 +139,8 @@ export interface ModelSummary {
   model_kind?: string | null;
   /** Which org type the model applies to (e.g. "foundation"); null = any. */
   applies_to?: string | null;
+  /** Retired: excluded from scoring + pickers, but reversible. */
+  archived?: boolean;
   created_at?: string;
 }
 

@@ -317,6 +317,43 @@ export const handler = define.handlers({
     if (!isAdmin(ctx.state.principal)) return ctx.redirect("/login");
     const api = ctx.state.api;
     const form = await ctx.req.formData();
+    const action = String(form.get("action") ?? "").trim();
+
+    // Lifecycle actions (archive / un-archive / delete) act on a version — no
+    // definition needed. The backend enforces the dependency + has-scores guards;
+    // we just surface its message.
+    if (action === "archive" || action === "unarchive" || action === "delete") {
+      const version = String(form.get("version") ?? "").trim();
+      if (!version) {
+        return ctx.redirect(
+          "/models?err=" + encodeURIComponent("Missing version."),
+        );
+      }
+      try {
+        const res = action === "delete"
+          ? await api.admin.deleteModel(version)
+          : await api.admin.archiveModel(version, action === "archive");
+        const soft = res && typeof res === "object"
+          ? (res as { error?: string }).error
+          : undefined;
+        if (soft) {
+          return ctx.redirect("/models?err=" + encodeURIComponent(soft));
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          return ctx.redirect("/login");
+        }
+        const msg = err instanceof Error ? err.message : "Request failed.";
+        return ctx.redirect("/models?err=" + encodeURIComponent(msg));
+      }
+      const okMsg = action === "delete"
+        ? `Deleted v${version}`
+        : action === "archive"
+        ? `Archived v${version}`
+        : `Un-archived v${version}`;
+      return ctx.redirect("/models?msg=" + encodeURIComponent(okMsg));
+    }
+
     const raw = String(form.get("definition") ?? "");
     const dryRun = form.get("dry_run") === "1";
     const skipExisting = form.get("skip_existing") === "1";
@@ -692,6 +729,7 @@ export default define.page<typeof handler>((ctx) => {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "9px",
+                  opacity: m.archived ? 0.6 : 1,
                 }}
               >
                 <span
@@ -706,6 +744,21 @@ export default define.page<typeof handler>((ctx) => {
                 >
                   {m.label.replace(/^v\d+\s*—\s*/, "")}
                 </span>
+                {m.archived && (
+                  <span
+                    class="mono uppercase"
+                    style={{
+                      fontSize: "9.5px",
+                      letterSpacing: ".08em",
+                      color: "#9a6a1c",
+                      background: "#f6ecd8",
+                      borderRadius: "5px",
+                      padding: "1px 6px",
+                    }}
+                  >
+                    Archived
+                  </span>
+                )}
                 {m.kind && (
                   <span
                     class="mono uppercase"

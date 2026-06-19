@@ -217,6 +217,80 @@ Deno.test("GET /financials?ein=… surfaces low-confidence facts in Needs review
   assertStringIncludes(res.body, "55%");
 });
 
+Deno.test("GET /financials?ein=… renders an inline edit form per fact for a writer", async () => {
+  const res = await appRequest("/financials?ein=000000001&year=2023", {
+    cookie: sessionCookie(ADMIN),
+    backend: FACTS,
+  });
+  assertEquals(res.status, 200);
+  // The All-facts table has the Edit-value column + a value input wired to the
+  // fact's concept (prog comes from the FACTS stub).
+  assertStringIncludes(res.body, "Edit value");
+  assertStringIncludes(res.body, 'value="edit"');
+  assertStringIncludes(res.body, 'value="prog"');
+});
+
+Deno.test("POST /financials edit posts the value and redirects with a msg", async () => {
+  let edited: Record<string, unknown> | null = null;
+  const res = await appRequest("/financials", {
+    cookie: sessionCookie(ADMIN),
+    form: {
+      action: "edit",
+      ein: "000000001",
+      year: "2023",
+      fiscal_year: "2023",
+      concept: "prog",
+      value: "1234",
+    },
+    backend: {
+      "POST /financials/value": (req: Request) =>
+        req.json().then((b) => {
+          edited = b;
+          return jsonResponse({
+            created: true,
+            value: 1234,
+            recompute_needed: true,
+          });
+        }),
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assert(res.location?.startsWith("/financials?ein=000000001"));
+  assertStringIncludes(res.location ?? "", "msg=");
+  assert(edited, "the edit-value endpoint was called");
+  const body = edited as {
+    concept: string;
+    value: number;
+    fiscal_year: number;
+  };
+  assertEquals(body.concept, "prog");
+  assertEquals(body.value, 1234);
+  assertEquals(body.fiscal_year, 2023);
+});
+
+Deno.test("POST /financials edit with a non-numeric value redirects with an error", async () => {
+  let called = false;
+  const res = await appRequest("/financials", {
+    cookie: sessionCookie(ADMIN),
+    form: {
+      action: "edit",
+      ein: "000000001",
+      fiscal_year: "2023",
+      concept: "prog",
+      value: "abc",
+    },
+    backend: {
+      "POST /financials/value": () => {
+        called = true;
+        return jsonResponse({});
+      },
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assertStringIncludes(res.location ?? "", "err=");
+  assert(!called, "a non-numeric value must not reach the endpoint");
+});
+
 Deno.test("POST /financials canonical redirects back to /financials with a msg", async () => {
   let canonicalSet = false;
   const res = await appRequest("/financials", {

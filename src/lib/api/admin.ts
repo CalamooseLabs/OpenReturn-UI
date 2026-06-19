@@ -25,6 +25,19 @@ export class AdminApi extends ApiResource {
   updateModel(body: { definition: unknown; dry_run?: boolean }) {
     return this.post<Record<string, unknown>>("/admin/models/update", body);
   }
+  /** Archive (retire) or un-archive a model (reversible; excludes it from scoring). */
+  archiveModel(version: string, archived: boolean) {
+    return this.post<Record<string, unknown>>("/admin/models/archive", {
+      version,
+      archived,
+    });
+  }
+  /** Hard-delete a model (blocked if depended on, or if it has stored scores). */
+  deleteModel(version: string) {
+    return this.post<Record<string, unknown>>("/admin/models/delete", {
+      version,
+    });
+  }
 
   // Users
   listUsers() {

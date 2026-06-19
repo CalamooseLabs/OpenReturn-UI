@@ -16,6 +16,7 @@ import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { type Api, ApiError } from "../../lib/api/mod.ts";
 import { Layout } from "../../components/templates.tsx";
+import { Button } from "../../components/atoms.tsx";
 import {
   ModelBreadcrumb,
   ModelHeaderCard,
@@ -41,6 +42,11 @@ interface Data {
   modelName?: string;
   modelKind?: string;
   modelDescription?: string;
+  /** Whether the model is archived (admin registry only); drives the controls. */
+  archived?: boolean;
+  /** True when the caller is an admin AND the model is in the registry (so the
+   * archive/delete controls act on a real, manageable model — not a template). */
+  manageable?: boolean;
   // Live trace (from GET /scores/debug for an example org), when available.
   trace?: DebugTrace;
   exampleName?: string;
@@ -92,15 +98,20 @@ export const handler = define.handlers({
     let modelName: string | undefined;
     let modelKind: string | undefined = factors?.model_kind ?? undefined;
     let modelDescription: string | undefined;
+    let archived: boolean | undefined;
+    let manageable = false;
 
     if (modelsR.status === "fulfilled") {
+      // version is TEXT in the API; coerce so a numeric version still matches.
       const m = (modelsR.value.models ?? []).find((x: ModelSummary) =>
-        x.version === version
+        String(x.version) === version
       );
       if (m) {
         modelDescription = m.description ?? undefined;
         modelKind = m.model_kind ?? modelKind;
         modelName = m.description ?? undefined;
+        archived = m.archived ?? false;
+        manageable = true; // present in the admin registry → archivable/deletable
       }
     }
     if (!modelName && tplR.status === "fulfilled") {
@@ -142,6 +153,8 @@ export const handler = define.handlers({
       modelName,
       modelKind,
       modelDescription,
+      archived,
+      manageable,
       trace,
       exampleName,
     });
@@ -267,8 +280,49 @@ export default define.page<typeof handler>((ctx) => {
               Edit model
             </a>
           )}
+          {
+            /* Lifecycle controls (admin + a registered model — not a template).
+              Both POST to /models, which enforces the dependency + has-scores
+              guards and surfaces any error. */
+          }
+          {isAdmin(state.principal) && data.manageable && (
+            <>
+              <form method="POST" action="/models">
+                <input
+                  type="hidden"
+                  name="action"
+                  value={data.archived ? "unarchive" : "archive"}
+                />
+                <input type="hidden" name="version" value={data.version} />
+                <Button type="submit" size="sm" variant="secondary">
+                  {data.archived ? "Un-archive" : "Archive"}
+                </Button>
+              </form>
+              <form method="POST" action="/models">
+                <input type="hidden" name="action" value="delete" />
+                <input type="hidden" name="version" value={data.version} />
+                <Button type="submit" size="sm" variant="danger">
+                  Delete
+                </Button>
+              </form>
+            </>
+          )}
         </div>
       </div>
+      {data.archived && (
+        <div
+          class="mono mt-3 inline-flex items-center rounded-md uppercase"
+          style={{
+            fontSize: "11px",
+            letterSpacing: ".06em",
+            color: "#9a6a1c",
+            background: "#f6ecd8",
+            padding: "3px 9px",
+          }}
+        >
+          Archived — excluded from scoring
+        </div>
+      )}
 
       {data.factorsError && !data.factors
         ? (

@@ -193,6 +193,34 @@ export const handler = define.handlers({
             ),
         );
       }
+      if (action === "edit") {
+        const fiscalYear = parseInt(String(form.get("fiscal_year") ?? ""), 10);
+        const concept = String(form.get("concept") ?? "").trim();
+        const raw = String(form.get("value") ?? "").trim();
+        const num = Number(raw);
+        if (
+          !ein || Number.isNaN(fiscalYear) || !concept || raw === "" ||
+          !Number.isFinite(num)
+        ) {
+          return back(
+            "err=" + encodeURIComponent("A numeric value is required."),
+          );
+        }
+        const res = await api.financials.editValue({
+          ein,
+          fiscal_year: fiscalYear,
+          concept,
+          value: num,
+        });
+        const soft = softError(res);
+        if (soft) return back("err=" + encodeURIComponent(soft));
+        return back(
+          "msg=" +
+            encodeURIComponent(
+              `Updated ${titleCase(concept)} — re-run scoring to apply`,
+            ),
+        );
+      }
       return back("err=" + encodeURIComponent("Unknown action."));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -586,6 +614,7 @@ export default define.page<typeof handler>((ctx) => {
                         <th>Value</th>
                         <th>Status</th>
                         <th>Chosen by</th>
+                        {canWrite && <th>Edit value</th>}
                       </>
                     }
                   >
@@ -610,6 +639,54 @@ export default define.page<typeof handler>((ctx) => {
                             : <Badge variant="gray">Single source</Badge>}
                         </td>
                         <td class="text-muted">{f.chosen_by ?? "—"}</td>
+                        {canWrite && (
+                          <td>
+                            {
+                              /* Inline hand-edit: a non-manual value mints a manual
+                                observation; a manual one updates in place. */
+                            }
+                            <form
+                              method="POST"
+                              class="flex items-center gap-2"
+                            >
+                              <input type="hidden" name="action" value="edit" />
+                              <input
+                                type="hidden"
+                                name="ein"
+                                value={data.ein}
+                              />
+                              <input
+                                type="hidden"
+                                name="year"
+                                value={data.year}
+                              />
+                              <input
+                                type="hidden"
+                                name="concept"
+                                value={f.concept_code}
+                              />
+                              <input
+                                type="hidden"
+                                name="fiscal_year"
+                                value={f.fiscal_year}
+                              />
+                              <input
+                                class="input"
+                                name="value"
+                                type="number"
+                                step="any"
+                                value={f.canonical_value ?? ""}
+                                style={{ width: "9rem" }}
+                                aria-label={`Edit ${
+                                  titleCase(f.concept_code)
+                                } ${f.fiscal_year}`}
+                              />
+                              <Button type="submit" variant="ghost" size="sm">
+                                Save
+                              </Button>
+                            </form>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </Table>

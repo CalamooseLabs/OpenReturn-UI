@@ -40,6 +40,8 @@ export interface ModelOption {
   label: string;
   kind?: string;
   type?: string;
+  /** Retired (admin list only) — excluded from scoring, shown for management. */
+  archived?: boolean;
 }
 
 /**
@@ -98,6 +100,7 @@ export async function listModelOptions(
           label: `v${m.version} — ${m.description ?? m.model_kind ?? "model"}`,
           kind: m.model_kind ?? undefined,
           type: m.model_type ?? undefined,
+          archived: m.archived ?? false,
         }))
         .sort((a, b) => compareVersions(a.version, b.version));
     } catch (e) {

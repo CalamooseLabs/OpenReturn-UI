@@ -231,3 +231,173 @@ Deno.test("POST /models with editing=20 calls the update endpoint", async () => 
   assert(res.status === 302 || res.status === 303);
   assert(updated, "the update endpoint was called");
 });
+
+Deno.test("GET /models (ADMIN) badges an archived model in the roster", async () => {
+  const res = await appRequest("/models", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      ...CATALOG,
+      "/admin/models": () =>
+        jsonResponse({
+          models: [
+            { version: 10, description: "Active", model_kind: "model" },
+            {
+              version: 99,
+              description: "Retired",
+              model_kind: "model",
+              archived: true,
+            },
+          ],
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, "Archived");
+});
+
+Deno.test("GET /models/20 (ADMIN) shows Archive + Delete controls", async () => {
+  const res = await appRequest("/models/20", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "/templates": () => jsonResponse({ templates: [] }),
+      "/admin/models": () =>
+        jsonResponse({
+          models: [{
+            version: 20,
+            description: "Financial composite",
+            model_kind: "composite",
+            archived: false,
+          }],
+        }),
+      "/scores/factors": () =>
+        jsonResponse({
+          model_version: 20,
+          model_type: "financial",
+          scoring_mode: "computed",
+          model_kind: "composite",
+          factors: [],
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  // Both lifecycle forms render (archive since not archived, + delete), posting
+  // to the /models POST handler.
+  assertStringIncludes(res.body, 'value="archive"');
+  assertStringIncludes(res.body, 'value="delete"');
+  assertStringIncludes(res.body, 'action="/models"');
+});
+
+Deno.test("GET /models/20 (ADMIN) shows Un-archive + banner for an archived model", async () => {
+  const res = await appRequest("/models/20", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "/templates": () => jsonResponse({ templates: [] }),
+      "/admin/models": () =>
+        jsonResponse({
+          models: [{
+            version: 20,
+            description: "Retired composite",
+            model_kind: "composite",
+            archived: true,
+          }],
+        }),
+      "/scores/factors": () =>
+        jsonResponse({
+          model_version: 20,
+          model_kind: "composite",
+          scoring_mode: "computed",
+          factors: [],
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  assertStringIncludes(res.body, 'value="unarchive"');
+  assertStringIncludes(res.body, "excluded from scoring");
+});
+
+Deno.test("GET /models/20 (ADMIN) hides controls for a template-only model", async () => {
+  // Not in the admin registry (manageable=false) → no archive/delete controls.
+  const res = await appRequest("/models/20", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "/templates": () => jsonResponse({ templates: [] }),
+      "/admin/models": () => jsonResponse({ models: [] }),
+      "/scores/factors": () =>
+        jsonResponse({
+          model_version: 20,
+          scoring_mode: "computed",
+          factors: [],
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  assert(
+    !res.body.includes('value="delete"'),
+    "delete control must not render for a non-registered (template-only) model",
+  );
+});
+
+Deno.test("POST /models action=archive (VIEWER) is blocked server-side", async () => {
+  const res = await appRequest("/models", {
+    cookie: sessionCookie(VIEWER),
+    form: { action: "archive", version: "20" },
+    backend: {
+      "POST /admin/models/archive": () => jsonResponse({ archived: true }),
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assertStringIncludes(res.location ?? "", "/login");
+});
+
+Deno.test("POST /models action=archive calls the archive endpoint", async () => {
+  let hit = false;
+  const res = await appRequest("/models", {
+    cookie: sessionCookie(ADMIN),
+    form: { action: "archive", version: "20" },
+    backend: {
+      "POST /admin/models/archive": () => {
+        hit = true;
+        return jsonResponse({ version: "20", archived: true });
+      },
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assert(hit, "the archive endpoint was called");
+  assertStringIncludes(res.location ?? "", "msg=");
+});
+
+Deno.test("POST /models action=delete calls the delete endpoint", async () => {
+  let hit = false;
+  const res = await appRequest("/models", {
+    cookie: sessionCookie(ADMIN),
+    form: { action: "delete", version: "20" },
+    backend: {
+      "POST /admin/models/delete": () => {
+        hit = true;
+        return jsonResponse({
+          deleted: true,
+          version: "20",
+          scores_deleted: 0,
+        });
+      },
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assert(hit, "the delete endpoint was called");
+  assertStringIncludes(res.location ?? "", "msg=");
+});
+
+Deno.test("POST /models action=delete surfaces a guardrail error", async () => {
+  const res = await appRequest("/models", {
+    cookie: sessionCookie(ADMIN),
+    form: { action: "delete", version: "10" },
+    backend: {
+      "POST /admin/models/delete": () =>
+        jsonResponse({
+          error: "model version 10 is referenced by v20 (composite)",
+        }),
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assertStringIncludes(res.location ?? "", "err=");
+});
