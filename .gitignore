@@ -26,3 +26,6 @@ cov/
 *.log
 
 design-reference/
+
+# Claude Code commit-message scratch (signed via `gcommit`, not committed)
+GIT_COMMIT_MSG

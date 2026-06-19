@@ -11,11 +11,12 @@ import {
   Flash,
   PageHeader,
   Section,
+  Select,
   Table,
 } from "../components/molecules.tsx";
 import { formatEin, money, normalizeEin, titleCase } from "../lib/format.ts";
 import { can } from "../lib/auth.ts";
-import type { FinancialFact } from "../lib/types.ts";
+import type { CodeNameDesc, FinancialFact } from "../lib/types.ts";
 
 interface SourceInfo {
   code: string;
@@ -31,6 +32,7 @@ interface Data {
   facts: FinancialFact[];
   conflicts: FinancialFact[];
   sources: SourceInfo[];
+  concepts: CodeNameDesc[];
   loadError?: string;
   msg?: string;
   err?: string;
@@ -58,6 +60,7 @@ export const handler = define.handlers({
         facts: [],
         conflicts: [],
         sources: [],
+        concepts: [],
         msg,
         err,
       });
@@ -65,13 +68,15 @@ export const handler = define.handlers({
 
     const yearNum = /^\d{4}$/.test(year) ? parseInt(year, 10) : undefined;
 
-    const [factsR, conflictsR, sourcesR, orgR] = await Promise.allSettled([
-      api.financials.facts(ein, yearNum),
-      api.financials.conflicts(ein),
-      api.financials.sources(),
-      api.orgs.detail(ein),
-    ]);
-    for (const r of [factsR, conflictsR, sourcesR, orgR]) {
+    const [factsR, conflictsR, sourcesR, conceptsR, orgR] = await Promise
+      .allSettled([
+        api.financials.facts(ein, yearNum),
+        api.financials.conflicts(ein),
+        api.financials.sources(),
+        api.financials.concepts(),
+        api.orgs.detail(ein),
+      ]);
+    for (const r of [factsR, conflictsR, sourcesR, conceptsR, orgR]) {
       if (r.status === "rejected") only(r.reason);
     }
 
@@ -81,6 +86,9 @@ export const handler = define.handlers({
       : [];
     const sources = sourcesR.status === "fulfilled"
       ? sourcesR.value.sources ?? []
+      : [];
+    const concepts = conceptsR.status === "fulfilled"
+      ? conceptsR.value.concepts ?? []
       : [];
     const orgName = orgR.status === "fulfilled"
       ? (orgR.value as { name?: string }).name
@@ -100,6 +108,7 @@ export const handler = define.handlers({
       facts,
       conflicts,
       sources,
+      concepts,
       loadError,
       msg,
       err,
@@ -147,6 +156,43 @@ export const handler = define.handlers({
         }
         return back("msg=" + encodeURIComponent("Resolved"));
       }
+      if (action === "record") {
+        const fiscalYear = parseInt(String(form.get("fiscal_year") ?? ""), 10);
+        const source = String(form.get("source") ?? "").trim();
+        if (!ein || Number.isNaN(fiscalYear) || !source) {
+          return back(
+            "err=" + encodeURIComponent("EIN, year, and source are required."),
+          );
+        }
+        // Collect concept→value from the value_<concept> fields (blank = skip).
+        const values: Record<string, number> = {};
+        for (const [key, raw] of form.entries()) {
+          if (!key.startsWith("value_")) continue;
+          const v = String(raw).trim();
+          if (v === "") continue;
+          const num = Number(v);
+          if (Number.isFinite(num)) values[key.slice("value_".length)] = num;
+        }
+        if (Object.keys(values).length === 0) {
+          return back("err=" + encodeURIComponent("Enter at least one value."));
+        }
+        const note = String(form.get("note") ?? "").trim();
+        const res = await api.financials.recordObservations({
+          ein,
+          fiscal_year: fiscalYear,
+          source,
+          values,
+          ...(note ? { note } : {}),
+        });
+        const soft = softError(res);
+        if (soft) return back("err=" + encodeURIComponent(soft));
+        return back(
+          "msg=" +
+            encodeURIComponent(
+              `Recorded ${Object.keys(values).length} value(s)`,
+            ),
+        );
+      }
       return back("err=" + encodeURIComponent("Unknown action."));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -169,13 +215,16 @@ export default define.page<typeof handler>((ctx) => {
   const yearLabel = data.year && /^\d{4}$/.test(data.year)
     ? data.year
     : "latest";
+  // Low-confidence canonical values no human has verified (e.g. a sole OCR
+  // reading). Conflicts have their own resolution flow, so exclude them here.
+  const reviewFacts = data.facts.filter((f) => f.review && !f.conflict);
 
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
       <PageHeader
         eyebrow="Financial Data"
         title="Financial data"
-        subtitle="Inspect an organization's reported facts and resolve source conflicts."
+        subtitle="Inspect reported facts, verify low-confidence values, and resolve source conflicts."
       />
 
       <Flash msg={data.msg} err={data.err} />
@@ -231,6 +280,176 @@ export default define.page<typeof handler>((ctx) => {
               <div class="mb-4">
                 <ErrorAlert message={data.loadError} />
               </div>
+            )}
+
+            {
+              /* Add a source's values (data:write). One submit records every
+              non-blank concept; new disagreements surface below as conflicts. */
+            }
+            {canWrite && data.concepts.length > 0 && (
+              <Section title="Add financial data">
+                <Card>
+                  <form method="POST">
+                    <input type="hidden" name="action" value="record" />
+                    <input type="hidden" name="ein" value={data.ein} />
+                    <div class="mb-4 grid gap-4 md:grid-cols-3 md:items-end">
+                      <Select
+                        label="Source"
+                        name="source"
+                        placeholder="Choose a source"
+                        options={data.sources.map((s) => ({
+                          value: s.code,
+                          label: s.name,
+                        }))}
+                      />
+                      <Field
+                        label="Fiscal year"
+                        name="fiscal_year"
+                        value={/^\d{4}$/.test(data.year) ? data.year : ""}
+                        placeholder="e.g. 2023"
+                        required
+                      />
+                      <Field
+                        label="Note (optional)"
+                        name="note"
+                        placeholder="Source / context"
+                      />
+                    </div>
+                    <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      {data.concepts.map((c) => (
+                        <div class="field">
+                          <label class="label" for={`value_${c.code}`}>
+                            {c.name ?? titleCase(c.code)}{" "}
+                            <span class="mono text-xs text-faint">
+                              {c.code}
+                            </span>
+                          </label>
+                          <input
+                            class="input"
+                            id={`value_${c.code}`}
+                            name={`value_${c.code}`}
+                            type="number"
+                            step="any"
+                            placeholder="—"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div class="mt-4 flex items-center gap-3">
+                      <Button type="submit" variant="primary">
+                        Record values
+                      </Button>
+                      <span class="text-xs text-faint">
+                        Blank fields are skipped. Values join existing facts;
+                        disagreements become conflicts to resolve below.
+                      </span>
+                    </div>
+                  </form>
+                </Card>
+              </Section>
+            )}
+
+            {/* Low-confidence canonical values that need a human's eyes. */}
+            {reviewFacts.length > 0 && (
+              <Section title={`Needs review (${reviewFacts.length})`}>
+                <Card>
+                  <p class="mb-4 text-[13px] text-muted">
+                    These canonical values come from a low-confidence reading
+                    (e.g. OCR of a 990 PDF) and no one has verified them.
+                    Confirm the value to mark it reviewed, or record a corrected
+                    value above.
+                  </p>
+                  <Table
+                    head={
+                      <>
+                        <th>Concept</th>
+                        <th>Year</th>
+                        <th>Value</th>
+                        <th>Source</th>
+                        <th>Confidence</th>
+                        {canWrite && <th></th>}
+                      </>
+                    }
+                  >
+                    {reviewFacts.map((f) => {
+                      const canon = f.observations.find((o) =>
+                        o.is_canonical
+                      );
+                      return (
+                        <tr>
+                          <td class="font-medium text-ink">
+                            {titleCase(f.concept_code)}{" "}
+                            <Badge variant="amber">Review</Badge>
+                          </td>
+                          <td class="tabular-nums text-muted">
+                            {f.fiscal_year}
+                          </td>
+                          <td class="tabular-nums font-semibold text-navy">
+                            {money(f.canonical_value)}
+                          </td>
+                          <td class="text-muted">
+                            {sourceLabel(
+                              data.sources,
+                              f.canonical_source ?? "",
+                            )}
+                          </td>
+                          <td class="tabular-nums text-muted">
+                            {f.canonical_confidence === null ||
+                                f.canonical_confidence === undefined
+                              ? "—"
+                              : `${(f.canonical_confidence * 100).toFixed(0)}%`}
+                          </td>
+                          {canWrite && (
+                            <td>
+                              {canon && (
+                                <form method="POST" class="inline">
+                                  <input
+                                    type="hidden"
+                                    name="action"
+                                    value="canonical"
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="ein"
+                                    value={data.ein}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="year"
+                                    value={data.year}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="concept"
+                                    value={f.concept_code}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="fiscal_year"
+                                    value={f.fiscal_year}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="observation_id"
+                                    value={canon.observation_id}
+                                  />
+                                  <Button
+                                    type="submit"
+                                    variant="ghost"
+                                    size="sm"
+                                  >
+                                    Confirm value
+                                  </Button>
+                                </form>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                </Card>
+              </Section>
             )}
 
             {/* Conflicts to resolve */}
@@ -384,6 +603,8 @@ export default define.page<typeof handler>((ctx) => {
                         <td>
                           {f.conflict
                             ? <Badge variant="red">Conflict</Badge>
+                            : f.review
+                            ? <Badge variant="amber">Review</Badge>
                             : f.resolved
                             ? <Badge variant="green">Resolved</Badge>
                             : <Badge variant="gray">Single source</Badge>}

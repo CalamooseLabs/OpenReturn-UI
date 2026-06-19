@@ -71,8 +71,15 @@ Deno.test("GET /models (ADMIN) renders catalog, registered models, and the build
   // A template code/name is listed.
   assertStringIncludes(res.body, "Program Expense Ratio");
   assertStringIncludes(res.body, "10-op");
-  // The admin builder section appears.
+  // The admin builder section appears, now as the structured field-by-field
+  // builder (with an Advanced JSON fallback) rather than a raw textarea.
   assertStringIncludes(res.body, "Create a model");
+  assertStringIncludes(res.body, "Add factor");
+  assertStringIncludes(res.body, "Advanced (JSON)");
+  assertStringIncludes(res.body, "Preview definition JSON");
+  // It still posts the same definition + dry-run/skip fields.
+  assertStringIncludes(res.body, 'name="definition"');
+  assertStringIncludes(res.body, "Validate only (dry run)");
 });
 
 Deno.test("GET /models?version=20 (ADMIN) renders the factor breakdown", async () => {
@@ -163,4 +170,64 @@ Deno.test("GET /models (VIEWER) hides the builder and shows a read-only note", a
   );
   // Read-only note explaining admin is required.
   assertStringIncludes(res.body, "Administrator access is required");
+});
+
+Deno.test("GET /models?edit=20 (ADMIN) loads the model into the builder", async () => {
+  const res = await appRequest("/models?edit=20", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      ...CATALOG,
+      "/admin/models/definition": () =>
+        jsonResponse({
+          version: "20",
+          definition: {
+            model: {
+              version: "20",
+              type: "financial",
+              kind: "composite",
+              mode: "computed",
+              description: "Financial composite",
+            },
+            factor: [{
+              name: "Program efficiency",
+              weight: 1.0,
+              formula_type: "ratio",
+              inputs: ["prog", "total_exp"],
+              direction: "higher",
+              benchmark_lo: 0,
+              benchmark_hi: 1,
+            }],
+          },
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  // Edit-mode chrome + the loaded definition prefilled into the builder.
+  assertStringIncludes(res.body, "Edit model v20");
+  assertStringIncludes(res.body, "Save changes");
+  assertStringIncludes(res.body, 'name="editing"');
+  assertStringIncludes(res.body, "Program efficiency");
+});
+
+Deno.test("POST /models with editing=20 calls the update endpoint", async () => {
+  let updated = false;
+  const res = await appRequest("/models", {
+    form: {
+      definition: JSON.stringify({ model: { version: "20" }, factor: [] }),
+      editing: "20",
+    },
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      "POST /admin/models/update": () => {
+        updated = true;
+        return jsonResponse({
+          updated: true,
+          version: "20",
+          recompute_needed: true,
+        });
+      },
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assert(updated, "the update endpoint was called");
 });

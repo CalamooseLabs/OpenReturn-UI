@@ -218,6 +218,11 @@ export interface FinancialFact {
   resolved: boolean;
   conflict: boolean;
   canonical_value: number | null;
+  /** The chosen observation's source + confidence, and whether it needs review
+   * (a low-confidence value no human has verified — e.g. a sole OCR reading). */
+  canonical_source?: string | null;
+  canonical_confidence?: number | null;
+  review?: boolean;
 }
 
 export interface Membership {

@@ -224,3 +224,45 @@ Deno.test("POST /upload (pdf) OCRs and renders the result", async () => {
   assertStringIncludes(res.body, "observations");
   assertStringIncludes(res.body, "3");
 });
+
+Deno.test("POST /upload (pdf) renders the OCR concept table + review flag", async () => {
+  const fd = new FormData();
+  fd.append("action", "pdf");
+  fd.append("ein", "000000001");
+  fd.append("year", "2024");
+  fd.append(
+    "pdffile",
+    new Blob(["%PDF"], { type: "application/pdf" }),
+    "aj.pdf",
+  );
+
+  const res = await appRequest("/upload", {
+    cookie: sessionCookie(ADMIN),
+    formData: fd,
+    backend: {
+      "POST /upload/pdf": () =>
+        jsonResponse({
+          status: "complete",
+          ein: "000000001",
+          year: 2024,
+          pages: 41,
+          form: "990",
+          recorded: 2,
+          concepts: {
+            cy_rev: { value: 1213263, confidence: 0.89, review: false },
+            // A low-confidence reading → flagged for review.
+            contrib: { value: 1073030, confidence: 0.55, review: true },
+          },
+        }),
+    },
+  });
+
+  assertEquals(res.status, 200);
+  // The detected form surfaces as a summary row.
+  assertStringIncludes(res.body, "990");
+  // The concept table renders codes + the review badge + banner.
+  assertStringIncludes(res.body, "cy_rev");
+  assertStringIncludes(res.body, "contrib");
+  assertStringIncludes(res.body, "Review");
+  assertStringIncludes(res.body, "below 80% confidence");
+});

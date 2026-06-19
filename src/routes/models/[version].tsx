@@ -23,6 +23,7 @@ import {
 } from "../../components/organisms/ModelDetail.tsx";
 import { titleCase } from "../../lib/format.ts";
 import { to100 } from "../../lib/score.ts";
+import { isAdmin } from "../../lib/auth.ts";
 import ModelWalkthrough from "../../islands/ModelWalkthrough.tsx";
 import type { DebugFactor, DebugTrace } from "../../lib/api/scores.ts";
 import type {
@@ -247,7 +248,27 @@ export default define.page<typeof handler>((ctx) => {
 
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} wide>
-      <ModelBreadcrumb name={headerName} />
+      <div class="flex items-center justify-between gap-3">
+        <ModelBreadcrumb name={headerName} />
+        <div class="flex items-center gap-2">
+          {scoringMode === "manual" && (
+            <a
+              href={`/grade?version=${data.version}`}
+              class="btn btn-sm btn-secondary no-underline"
+            >
+              Grade an organization
+            </a>
+          )}
+          {isAdmin(state.principal) && (
+            <a
+              href={`/models?edit=${data.version}`}
+              class="btn btn-sm btn-secondary no-underline"
+            >
+              Edit model
+            </a>
+          )}
+        </div>
+      </div>
 
       {data.factorsError && !data.factors
         ? (

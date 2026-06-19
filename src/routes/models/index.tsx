@@ -5,6 +5,7 @@ import { Layout } from "../../components/templates.tsx";
 import { Flash } from "../../components/molecules.tsx";
 import { titleCase } from "../../lib/format.ts";
 import { isAdmin } from "../../lib/auth.ts";
+import ModelBuilder from "../../islands/ModelBuilder.tsx";
 import {
   compareVersions,
   listModelOptions,
@@ -69,6 +70,8 @@ interface Data {
   templateDetail?: TemplateDetail;
   templateError?: string;
   prefill: string;
+  // Set (to the version) when the builder is editing an existing model.
+  editing?: string;
   // Flash messaging via PRG.
   msg?: string;
   err?: string;
@@ -271,6 +274,24 @@ export const handler = define.handlers({
       }
     }
 
+    // Edit mode: ?edit=<version> (admin) loads that model's full definition into
+    // the builder, which then POSTs an update instead of a create.
+    let editing: string | undefined;
+    const editVersion = admin
+      ? (sp.get("edit")?.trim() || undefined)
+      : undefined;
+    if (editVersion) {
+      try {
+        const r = await api.admin.modelDefinition(editVersion);
+        if (r && !(r as { error?: string }).error && r.definition) {
+          prefill = JSON.stringify(r.definition, null, 2);
+          editing = editVersion;
+        }
+      } catch (err) {
+        only(err);
+      }
+    }
+
     return page<Data>({
       admin,
       templates,
@@ -286,6 +307,7 @@ export const handler = define.handlers({
       templateDetail,
       templateError,
       prefill,
+      editing,
       msg: sp.get("msg") ?? undefined,
       err: sp.get("err") ?? undefined,
     });
@@ -298,6 +320,7 @@ export const handler = define.handlers({
     const raw = String(form.get("definition") ?? "");
     const dryRun = form.get("dry_run") === "1";
     const skipExisting = form.get("skip_existing") === "1";
+    const editing = String(form.get("editing") ?? "").trim();
 
     let definition: unknown;
     try {
@@ -309,27 +332,38 @@ export const handler = define.handlers({
     }
 
     try {
-      const res = await api.admin.createModel({
-        definition,
-        dry_run: dryRun,
-        skip_existing: skipExisting,
-      });
+      // `editing` (a version) → update the existing model; otherwise create.
+      const res = editing
+        ? await api.admin.updateModel({ definition, dry_run: dryRun })
+        : await api.admin.createModel({
+          definition,
+          dry_run: dryRun,
+          skip_existing: skipExisting,
+        });
       // A 2xx body may still carry a soft { error }.
       if (res && typeof res === "object" && (res as { error?: string }).error) {
+        const back = editing ? `&edit=${encodeURIComponent(editing)}` : "";
         return ctx.redirect(
           "/models?err=" +
-            encodeURIComponent((res as { error?: string }).error!),
+            encodeURIComponent((res as { error?: string }).error!) + back,
         );
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         return ctx.redirect("/login");
       }
-      const msg = err instanceof Error ? err.message : "Model creation failed.";
-      return ctx.redirect("/models?err=" + encodeURIComponent(msg));
+      const msg = err instanceof Error
+        ? err.message
+        : (editing ? "Model update failed." : "Model creation failed.");
+      const back = editing ? `&edit=${encodeURIComponent(editing)}` : "";
+      return ctx.redirect("/models?err=" + encodeURIComponent(msg) + back);
     }
 
-    const okMsg = dryRun ? "Valid (dry run)" : "Created";
+    const okMsg = dryRun
+      ? "Valid (dry run)"
+      : editing
+      ? `Updated v${editing} — re-run scoring to apply`
+      : "Created";
     return ctx.redirect("/models?msg=" + encodeURIComponent(okMsg));
   },
 });
@@ -746,7 +780,9 @@ export default define.page<typeof handler>((ctx) => {
       {data.admin
         ? (
           <div class="mt-8">
-            <h2 class="section-title mb-3">Create a model</h2>
+            <h2 class="section-title mb-3">
+              {data.editing ? `Edit model v${data.editing}` : "Create a model"}
+            </h2>
             <div
               class="overflow-hidden"
               style={{
@@ -786,86 +822,12 @@ export default define.page<typeof handler>((ctx) => {
                   creating.
                 </p>
               </div>
-              <form method="POST" style={{ padding: "18px 28px 26px" }}>
-                <label
-                  class="mono uppercase block"
-                  for="definition"
-                  style={{
-                    fontSize: "10.5px",
-                    letterSpacing: ".12em",
-                    color: "#9fb6e6",
-                    marginBottom: "8px",
-                  }}
-                >
-                  Model definition (JSON)
-                </label>
-                <textarea
-                  id="definition"
-                  name="definition"
-                  rows={20}
-                  spellcheck={false}
-                  class="mono w-full"
-                  style={{
-                    minHeight: "20rem",
-                    background: "#0f1d3d",
-                    color: "#dbe4f7",
-                    border: "1px solid #2f4170",
-                    borderRadius: "12px",
-                    padding: "14px 16px",
-                    fontSize: "12.5px",
-                    lineHeight: "1.55",
-                    resize: "vertical",
-                  }}
-                >
-                  {data.prefill}
-                </textarea>
-                <div class="mt-4 flex flex-wrap items-center gap-5">
-                  <label
-                    class="flex items-center gap-2"
-                    style={{ fontSize: "13px", color: "#cdd9f0" }}
-                  >
-                    <input type="checkbox" name="dry_run" value="1" />
-                    Validate only (dry run)
-                  </label>
-                  <label
-                    class="flex items-center gap-2"
-                    style={{ fontSize: "13px", color: "#cdd9f0" }}
-                  >
-                    <input type="checkbox" name="skip_existing" value="1" />
-                    Skip if exists
-                  </label>
-                  <div class="ml-auto flex gap-2">
-                    <button
-                      type="submit"
-                      class="font-semibold"
-                      style={{
-                        background: "#fff",
-                        color: "#192A54",
-                        borderRadius: "9px",
-                        padding: "9px 18px",
-                        fontSize: "13.5px",
-                        border: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Submit
-                    </button>
-                    <a
-                      href="/models"
-                      class="font-semibold no-underline"
-                      style={{
-                        color: "#cdd9f0",
-                        border: "1px solid #3a4f82",
-                        borderRadius: "9px",
-                        padding: "9px 18px",
-                        fontSize: "13.5px",
-                      }}
-                    >
-                      Reset
-                    </a>
-                  </div>
-                </div>
-              </form>
+              <ModelBuilder
+                prefill={data.prefill}
+                types={data.types}
+                kinds={data.kinds}
+                editing={data.editing}
+              />
             </div>
           </div>
         )

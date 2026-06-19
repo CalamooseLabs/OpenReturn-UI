@@ -12,8 +12,9 @@
 
 import type { ComponentChildren } from "preact";
 import { GaugeRing } from "../atoms.tsx";
-import { formatEin, money, titleCase } from "../../lib/format.ts";
-import { letterGrade, ordinal, scoreBand, to100 } from "../../lib/score.ts";
+import { formatEin, money, number, titleCase } from "../../lib/format.ts";
+import { letterGrade, ordinal, scoreBand } from "../../lib/score.ts";
+import { ScoreTrendChart, seriesFromHistory } from "./ScoreTrendChart.tsx";
 import type { Person, ScoreHistoryRow } from "../../lib/types.ts";
 
 /** A pillar in the rings rail: its label + the (already 0–100) value. */
@@ -241,54 +242,32 @@ export function moneyCompact(value: number | null): string {
 }
 
 /**
- * Area chart of the org's overall-score history (derived from /scores/history).
- * Score is 0–1 → 0–100; plotted across the org's filing years.
+ * Compact area chart of the org's overall-score history (from /scores/history),
+ * plotted 0–100 across the org's filing years. Imputed years render as hollow
+ * points; hover any point for its year + score. (Shared ScoreTrendChart.)
  */
 function ScoreTrend(props: { rows: ScoreHistoryRow[] }) {
   const rows = props.rows;
-  const W = 320;
-  const H = 90;
-  const vals = rows.map((r) => to100(r.total_score) ?? 0);
-  const n = rows.length;
-  const x = (i: number) => (n === 1 ? W : (i / (n - 1)) * W);
-  // Scale the band 0..100 into the chart, with a little headroom.
-  const y = (v: number) =>
-    H - 10 - (Math.max(0, Math.min(100, v)) / 100) * (H - 20);
-  const line = vals.map((v, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(v)}`)
-    .join(" ");
-  const area = `${line} L${W},${H} L0,${H} Z`;
   const firstYear = rows[0].year;
   const lastYear = rows[rows.length - 1].year;
+  const anyImputed = rows.some((r) => r.imputed);
+  const series = seriesFromHistory("Overall", "#3a5da8", rows);
   return (
     <>
-      <div class="text-muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
-        Score trend · {firstYear} → {lastYear}
-      </div>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        width="100%"
-        height="90"
-        preserveAspectRatio="none"
-        style={{ display: "block" }}
+      <div
+        class="flex items-baseline justify-between"
+        style={{ marginBottom: "8px" }}
       >
-        <path d={area} fill="#dde7f6" />
-        <path
-          d={line}
-          fill="none"
-          stroke="#3a5da8"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        {vals.map((v, i) => (
-          <circle
-            cx={x(i)}
-            cy={y(v)}
-            r={i === n - 1 ? 4.5 : 3.5}
-            fill="#3a5da8"
-          />
-        ))}
-      </svg>
+        <div class="text-muted" style={{ fontSize: "12px" }}>
+          Score trend · {firstYear} → {lastYear}
+        </div>
+        {anyImputed && (
+          <span class="mono text-faint" style={{ fontSize: "11px" }}>
+            ○ estimated
+          </span>
+        )}
+      </div>
+      <ScoreTrendChart series={[series]} area compact />
     </>
   );
 }
@@ -551,6 +530,165 @@ export function KeyPersonnel(props: { people: Person[] }) {
               ))}
             </div>
           )}
+      </div>
+    </div>
+  );
+}
+
+/** Grant-flow panel: per direction (outbound foundation → recipients, inbound
+ * funders → this org) a summary (count / total $ / distinct counterparties) plus
+ * the largest few grants. Renders nothing when the org has no grant activity. */
+export interface GrantStat {
+  grant_count: number;
+  total_amount: number;
+  counterparties: number;
+}
+
+export interface GrantRow {
+  year: number;
+  amount: number;
+  recipient?: string | null;
+  grantor?: string | null;
+  purpose?: string | null;
+}
+
+export interface GrantFlow {
+  summary: GrantStat;
+  grants: GrantRow[];
+}
+
+/** How many grants to list per direction before "+N more". */
+const GRANTS_SHOWN = 5;
+
+export function GrantsSummary(
+  props: { made?: GrantFlow; received?: GrantFlow },
+) {
+  const cards: {
+    label: string;
+    sub: string;
+    party: string;
+    flow: GrantFlow;
+    nameOf: (g: GrantRow) => string;
+  }[] = [];
+  if (props.made && props.made.summary.grant_count > 0) {
+    cards.push({
+      label: "Grants made",
+      sub: "to recipients",
+      party: "Recipients",
+      flow: props.made,
+      nameOf: (g) => g.recipient || "Unnamed recipient",
+    });
+  }
+  if (props.received && props.received.summary.grant_count > 0) {
+    cards.push({
+      label: "Grants received",
+      sub: "from funders",
+      party: "Funders",
+      flow: props.received,
+      nameOf: (g) => g.grantor || "Unnamed funder",
+    });
+  }
+  if (cards.length === 0) return null;
+
+  const figure = (label: string, value: string) => (
+    <div>
+      <div
+        class="mono font-semibold text-navy"
+        style={{ fontSize: "17px", lineHeight: "1.1" }}
+      >
+        {value}
+      </div>
+      <div class="text-faint" style={{ fontSize: "11px", marginTop: "3px" }}>
+        {label}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "0 44px 40px" }}>
+      <h2
+        class="font-display font-bold text-navy"
+        style={{
+          fontSize: "18px",
+          margin: "0 0 16px",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        Grants
+      </h2>
+      <div
+        class="grid"
+        style={{
+          gridTemplateColumns: cards.length > 1 ? "1fr 1fr" : "1fr",
+          gap: "16px",
+        }}
+      >
+        {cards.map((c) => {
+          const top = [...c.flow.grants]
+            .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
+            .slice(0, GRANTS_SHOWN);
+          const more = c.flow.summary.grant_count - top.length;
+          return (
+            <div
+              class="card"
+              style={{ borderRadius: "14px", padding: "18px 20px" }}
+            >
+              <div class="font-semibold text-navy" style={{ fontSize: "14px" }}>
+                {c.label}
+              </div>
+              <div
+                class="text-faint"
+                style={{ fontSize: "12px", margin: "1px 0 15px" }}
+              >
+                {c.sub}
+              </div>
+              <div
+                class="grid"
+                style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}
+              >
+                {figure("Total", moneyCompact(c.flow.summary.total_amount))}
+                {figure("Grants", number(c.flow.summary.grant_count))}
+                {figure(c.party, number(c.flow.summary.counterparties))}
+              </div>
+              {top.length > 0 && (
+                <div style={{ marginTop: "16px" }}>
+                  {top.map((g) => (
+                    <div
+                      class="flex items-baseline justify-between gap-3"
+                      style={{
+                        padding: "7px 0",
+                        borderTop: "1px solid var(--color-line-soft)",
+                      }}
+                    >
+                      <span
+                        class="min-w-0 truncate text-navy"
+                        style={{ fontSize: "13px" }}
+                        title={c.nameOf(g)}
+                      >
+                        {c.nameOf(g)}
+                      </span>
+                      <span
+                        class="mono shrink-0 text-muted"
+                        style={{ fontSize: "12px" }}
+                      >
+                        {moneyCompact(g.amount)}
+                        {g.year ? ` · ${g.year}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                  {more > 0 && (
+                    <div
+                      class="text-faint"
+                      style={{ fontSize: "12px", paddingTop: "8px" }}
+                    >
+                      +{number(more)} more
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

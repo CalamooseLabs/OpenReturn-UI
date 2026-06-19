@@ -1,11 +1,13 @@
 import { define } from "../../utils.ts";
 import { page } from "fresh";
 import { ApiError } from "../../lib/api/mod.ts";
+import type { Grant } from "../../lib/api/orgs.ts";
 import { Layout } from "../../components/templates.tsx";
 import { EmptyState, ErrorAlert } from "../../components/molecules.tsx";
 import { LinkButton } from "../../components/atoms.tsx";
 import {
   FinancialPicture,
+  GrantsSummary,
   KeyPersonnel,
   NarrativeRow,
   OrgHero,
@@ -32,6 +34,11 @@ interface GrantSummary {
   counterparties: number;
 }
 
+interface GrantFlow {
+  summary: GrantSummary;
+  grants: Grant[];
+}
+
 interface Data {
   ein: string;
   org?: OrgFull;
@@ -44,8 +51,8 @@ interface Data {
   facts: FinancialFact[];
   factsYear?: number;
   people: Person[];
-  grantsMade?: GrantSummary;
-  grantsReceived?: GrantSummary;
+  grantsMade?: GrantFlow;
+  grantsReceived?: GrantFlow;
 }
 
 function only(reason: unknown) {
@@ -150,10 +157,10 @@ export const handler = define.handlers({
       factsYear: latestYear,
       people: peopleR.status === "fulfilled" ? peopleR.value.people ?? [] : [],
       grantsMade: madeR.status === "fulfilled"
-        ? madeR.value.summary
+        ? { summary: madeR.value.summary, grants: madeR.value.grants ?? [] }
         : undefined,
       grantsReceived: recvR.status === "fulfilled"
-        ? recvR.value.summary
+        ? { summary: recvR.value.summary, grants: recvR.value.grants ?? [] }
         : undefined,
     });
   },
@@ -328,6 +335,11 @@ export default define.page<typeof handler>((ctx) => {
             hasGlobalRank={!!globalRank}
           />
         </NarrativeRow>
+
+        <GrantsSummary
+          made={data.grantsMade}
+          received={data.grantsReceived}
+        />
 
         <KeyPersonnel people={people} />
       </div>

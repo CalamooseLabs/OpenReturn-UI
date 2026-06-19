@@ -9,11 +9,22 @@ import {
   ModelsTable,
   type OrgColumn,
 } from "../components/organisms/ComparisonTable.tsx";
+import {
+  ScoreTrendChart,
+  SERIES_COLORS,
+  seriesFromHistory,
+  type TrendSeries,
+} from "../components/organisms/ScoreTrendChart.tsx";
 import { formatEin, normalizeEin } from "../lib/format.ts";
 import { to100 } from "../lib/score.ts";
 import { compareVersions, listModelOptions } from "../lib/models.ts";
 import { isAdmin } from "../lib/auth.ts";
-import type { FinancialFact, OrgFull, ScoreRow } from "../lib/types.ts";
+import type {
+  FinancialFact,
+  OrgFull,
+  ScoreHistoryRow,
+  ScoreRow,
+} from "../lib/types.ts";
 
 /* ------------------------------------------------------------------ types */
 
@@ -71,6 +82,7 @@ interface Data {
   mode2Cols: OrgColumn[];
   mode2Year?: number;
   mode2HasFin: boolean;
+  mode2Series: TrendSeries[];
   error?: string;
 }
 
@@ -178,6 +190,7 @@ export const handler = define.handlers({
     const mode2Cols: OrgColumn[] = [];
     let mode2Year: number | undefined;
     let mode2HasFin = false;
+    let mode2Series: TrendSeries[] = [];
     let error: string | undefined;
 
     // ---- Mode 1: one org across every model -------------------------------
@@ -272,6 +285,7 @@ export const handler = define.handlers({
         missing: boolean;
         year?: number | null;
         scores: ScoreRow[];
+        history: ScoreHistoryRow[];
         finYear?: number;
       }[] = [];
 
@@ -288,6 +302,7 @@ export const handler = define.handlers({
             imputed: false,
             missing: true,
             scores: [],
+            history: [],
           });
           continue;
         }
@@ -318,9 +333,20 @@ export const handler = define.handlers({
           missing: !latest,
           year: latest?.year,
           scores,
+          history,
           finYear: full ? latestYear(full) : undefined,
         });
       }
+
+      // Trend series: one line per org over its scored years (colours cycle to
+      // match the head-to-head order). The chart drops any empty series itself.
+      mode2Series = prelim.map((p, i) =>
+        seriesFromHistory(
+          p.name,
+          SERIES_COLORS[i % SERIES_COLORS.length],
+          p.history,
+        )
+      );
 
       // The financials header uses one fiscal year — the newest across columns.
       mode2Year = prelim
@@ -395,6 +421,7 @@ export const handler = define.handlers({
       mode2Cols,
       mode2Year,
       mode2HasFin,
+      mode2Series,
       error,
     });
   },
@@ -535,6 +562,26 @@ export default define.page<typeof handler>((ctx) => {
           hasFin={data.mode2HasFin}
           finYear={data.mode2Year}
         />
+      )}
+
+      {/* Score trend over time: one line per org on the selected model. */}
+      {data.mode2Active &&
+        data.mode2Series.some((s) =>
+          s.points.filter((p) => p.value !== null).length >= 2
+        ) && (
+        <div class="card card-pad mt-8">
+          <div class="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="section-title">Score trend over time</h2>
+            <span class="mono text-[11px] text-faint">
+              Model v{data.model} · 0–100 · hover a point for the year
+            </span>
+          </div>
+          <p class="mb-4 text-[13px] text-muted">
+            Each line traces an organization's overall score across its filing
+            years. Hollow points are estimated (imputed) years.
+          </p>
+          <ScoreTrendChart series={data.mode2Series} maxWidth={760} />
+        </div>
       )}
 
       {/* Mode 1 results: one org across models */}

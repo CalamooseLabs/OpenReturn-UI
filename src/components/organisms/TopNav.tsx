@@ -43,6 +43,7 @@ const DATA_LINKS = [
   { href: "/tags", label: "Tags" },
   { href: "/financials", label: "Financials" },
   { href: "/conflicts", label: "Conflicts" },
+  { href: "/grade", label: "Grade" },
 ];
 
 function active(path: string, href: string, exact?: boolean): boolean {

@@ -14,6 +14,17 @@ export class AdminApi extends ApiResource {
   }) {
     return this.post<Record<string, unknown>>("/admin/models", body);
   }
+  /** Full editable {model, factor} definition for a model (load-for-edit). */
+  modelDefinition(version: string) {
+    return this.get<{ version: string; definition: unknown; error?: string }>(
+      "/admin/models/definition",
+      { version },
+    );
+  }
+  /** Update an existing model's definition in place (edit). */
+  updateModel(body: { definition: unknown; dry_run?: boolean }) {
+    return this.post<Record<string, unknown>>("/admin/models/update", body);
+  }
 
   // Users
   listUsers() {

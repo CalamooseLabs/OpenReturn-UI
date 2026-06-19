@@ -60,6 +60,58 @@ export class ScoresApi extends ApiResource {
   debug(ein: string, year: number, version: string) {
     return this.get<DebugTrace>("/scores/debug", { ein, year, version });
   }
+
+  // ── Manual grading ──────────────────────────────────────────────────────
+  /** Create an empty score row anchoring manual grades for a filing+model. */
+  create(filingId: string, modelVersion: string) {
+    return this.post<
+      {
+        score_id: number;
+        filing_id: string;
+        model_version: string;
+        error?: string;
+      }
+    >("/scores", { filing_id: filingId, model_version: modelVersion });
+  }
+  /** Score header + per-factor values/comments (to prefill the grader). */
+  detail(scoreId: number) {
+    return this.get<ScoreDetail>("/scores/detail", { score_id: scoreId });
+  }
+  /** Record a grader's value (+ optional comment) for one MANUAL factor and
+   * return the recomputed score. */
+  grade(
+    body: {
+      score_id: number;
+      factor_id: number;
+      value: number;
+      comment?: string;
+    },
+  ) {
+    return this.post<ScoreDetail>("/scores/grade", body);
+  }
+}
+
+/** One factor row of a score's detail (graded value + comment for manual). */
+export interface ScoreFactorDetail {
+  factor_id: number;
+  name: string;
+  weight: number;
+  raw_value: number | null;
+  weighted_value: number | null;
+  comment: string | null;
+  manual_scale: string | null;
+}
+
+/** GET /scores/detail — a score header + its per-factor breakdown. */
+export interface ScoreDetail {
+  score_id: number;
+  ein?: string;
+  model_version: string;
+  year: number;
+  total_score: number | null;
+  scoring_mode?: string;
+  factors: ScoreFactorDetail[];
+  error?: string;
 }
 
 /** A single input variable in a factor trace (the provenance record). */

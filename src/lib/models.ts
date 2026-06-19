@@ -9,9 +9,16 @@ import { type Api, ApiError } from "./api/mod.ts";
 /** Compare two dot-separated version strings numerically per segment (so
  * "1.10" > "1.2", and date-style "2026.06.14" orders correctly). Missing
  * trailing segments count as 0. */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+export function compareVersions(
+  a: string | number,
+  b: string | number,
+): number {
+  // Coerce to string first: versions are TEXT in the API, but a numeric version
+  // (a stub, or a future numeric field) must not crash sorting — `(10).split`
+  // would throw, which previously emptied the entire model list and dropped the
+  // "Registered models" roster from /models.
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
     const d = (pa[i] ?? 0) - (pb[i] ?? 0);

@@ -57,6 +57,13 @@ const FACTS = {
     jsonResponse({
       sources: [{ code: "irs_990_xml", name: "IRS 990", rank: 100 }],
     }),
+  "/financials/concepts": () =>
+    jsonResponse({
+      concepts: [
+        { code: "total_exp", name: "Total Expenses" },
+        { code: "total_rev", name: "Total Revenue" },
+      ],
+    }),
   "/organizations/detail": () =>
     jsonResponse({ ein: "000000001", name: "Acme" }),
 };
@@ -86,6 +93,128 @@ Deno.test("GET /financials?ein=… renders facts, conflicts, and a Set canonical
   assertStringIncludes(res.body, "Total Exp");
   // The admin canonical-selection control.
   assertStringIncludes(res.body, "Set canonical");
+});
+
+Deno.test("GET /financials?ein=… renders the Add financial data form for a data:write user", async () => {
+  const res = await appRequest("/financials?ein=000000001&year=2023", {
+    cookie: sessionCookie(ADMIN),
+    backend: FACTS,
+  });
+  assertEquals(res.status, 200);
+  // The record form, its source select, and a value input per concept.
+  assertStringIncludes(res.body, "Add financial data");
+  assertStringIncludes(res.body, 'value="record"');
+  assertStringIncludes(res.body, 'name="source"');
+  assertStringIncludes(res.body, 'name="value_total_exp"');
+  assertStringIncludes(res.body, 'name="value_total_rev"');
+  // The fiscal year is pre-filled from the loaded year.
+  assertStringIncludes(res.body, "2023");
+});
+
+Deno.test("POST /financials record posts observations and redirects with a msg", async () => {
+  let recorded: Record<string, unknown> | null = null;
+  const res = await appRequest("/financials", {
+    cookie: sessionCookie(ADMIN),
+    form: {
+      action: "record",
+      ein: "000000001",
+      fiscal_year: "2023",
+      source: "audited_statement",
+      value_total_exp: "5200",
+      value_total_rev: "",
+      note: "From the FY23 audit",
+    },
+    backend: {
+      "POST /financials/observations": (req: Request) => {
+        return req.json().then((body) => {
+          recorded = body;
+          return jsonResponse({ ok: true });
+        });
+      },
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assert(res.location?.startsWith("/financials?ein=000000001"));
+  assertStringIncludes(res.location ?? "", "msg=");
+  assert(recorded, "the observations endpoint was called");
+  const body = recorded as {
+    ein: string;
+    fiscal_year: number;
+    source: string;
+    values: Record<string, number>;
+    note?: string;
+  };
+  assertEquals(body.source, "audited_statement");
+  assertEquals(body.fiscal_year, 2023);
+  // Blank value fields are skipped; only the filled concept is sent.
+  assertEquals(body.values, { total_exp: 5200 });
+  assertEquals(body.note, "From the FY23 audit");
+});
+
+Deno.test("POST /financials record with no values redirects with an error", async () => {
+  let called = false;
+  const res = await appRequest("/financials", {
+    cookie: sessionCookie(ADMIN),
+    form: {
+      action: "record",
+      ein: "000000001",
+      fiscal_year: "2023",
+      source: "audited_statement",
+      value_total_exp: "",
+    },
+    backend: {
+      "POST /financials/observations": () => {
+        called = true;
+        return jsonResponse({ ok: true });
+      },
+    },
+  });
+  assert(res.status === 302 || res.status === 303);
+  assertStringIncludes(res.location ?? "", "err=");
+  assert(!called, "no observation is recorded when every value is blank");
+});
+
+Deno.test("GET /financials?ein=… surfaces low-confidence facts in Needs review", async () => {
+  const res = await appRequest("/financials?ein=000000001&year=2024", {
+    cookie: sessionCookie(ADMIN),
+    backend: {
+      ...FACTS,
+      // A sole low-confidence OCR reading that auto-became canonical.
+      "/financials": () =>
+        jsonResponse({
+          ein: "000000001",
+          facts: [{
+            fiscal_year: 2024,
+            concept_code: "cy_exp",
+            chosen_by: "auto",
+            diverges: false,
+            conflict: false,
+            resolved: false,
+            review: true,
+            canonical_value: 500,
+            canonical_source: "ocr_990_pdf",
+            canonical_confidence: 0.55,
+            observations: [{
+              observation_id: 9,
+              source_code: "ocr_990_pdf",
+              value: 500,
+              confidence: 0.55,
+              is_canonical: true,
+            }],
+          }],
+        }),
+      "/financials/sources": () =>
+        jsonResponse({
+          sources: [{ code: "ocr_990_pdf", name: "OCR (990 PDF)", rank: 10 }],
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  // The review section, the source label, the confidence, and the confirm action.
+  assertStringIncludes(res.body, "Needs review");
+  assertStringIncludes(res.body, "Confirm value");
+  assertStringIncludes(res.body, "OCR (990 PDF)");
+  assertStringIncludes(res.body, "55%");
 });
 
 Deno.test("POST /financials canonical redirects back to /financials with a msg", async () => {

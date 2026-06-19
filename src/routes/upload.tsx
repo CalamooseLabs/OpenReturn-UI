@@ -3,7 +3,7 @@ import { page } from "fresh";
 import { ApiError, softError } from "../lib/api/mod.ts";
 import type { Api } from "../lib/api/mod.ts";
 import { Layout } from "../components/templates.tsx";
-import { LinkButton } from "../components/atoms.tsx";
+import { Badge, LinkButton } from "../components/atoms.tsx";
 import SubmitButton from "../islands/SubmitButton.tsx";
 import {
   Card,
@@ -13,7 +13,9 @@ import {
   InfoAlert,
   PageHeader,
   Section,
+  Table,
 } from "../components/molecules.tsx";
+import { money, titleCase } from "../lib/format.ts";
 import {
   GrabFromIrs,
   IngestedArchives,
@@ -77,6 +79,34 @@ function summarizeResult(
     }
   }
   return { rows, raw };
+}
+
+/** One extracted financial concept from an /upload/pdf OCR result. */
+interface OcrConcept {
+  code: string;
+  value: number | null;
+  confidence: number | null;
+  review: boolean;
+}
+
+/** Pull the OCR concept readings out of a /upload/pdf result (sorted by code). */
+function ocrConcepts(result: unknown): OcrConcept[] {
+  if (!result || typeof result !== "object") return [];
+  const concepts = (result as Record<string, unknown>).concepts;
+  if (!concepts || typeof concepts !== "object") return [];
+  const out: OcrConcept[] = [];
+  for (const [code, v] of Object.entries(concepts as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const o = v as Record<string, unknown>;
+    out.push({
+      code,
+      value: typeof o.value === "number" ? o.value : null,
+      confidence: typeof o.confidence === "number" ? o.confidence : null,
+      review: o.review === true,
+    });
+  }
+  out.sort((a, b) => a.code.localeCompare(b.code));
+  return out;
 }
 
 export const handler = define.handlers({
@@ -222,6 +252,52 @@ function ResultCard(props: { result: unknown; kind?: string }) {
             ))}
           </dl>
         )}
+        {props.kind === "pdf" && !soft && (() => {
+          const concepts = ocrConcepts(props.result);
+          if (concepts.length === 0) return null;
+          const review = concepts.filter((c) => c.review).length;
+          return (
+            <div class="mb-3">
+              {review > 0 && (
+                <div class="mb-3">
+                  <ErrorAlert
+                    message={`${review} reading(s) below 80% confidence — review before trusting these values. OCR never auto-overrides a higher-trust source.`}
+                  />
+                </div>
+              )}
+              <Table
+                head={
+                  <>
+                    <th>Concept</th>
+                    <th>Value</th>
+                    <th>Confidence</th>
+                    <th></th>
+                  </>
+                }
+              >
+                {concepts.map((c) => (
+                  <tr>
+                    <td class="font-medium text-ink">
+                      {titleCase(c.code)}{" "}
+                      <span class="mono text-xs text-faint">{c.code}</span>
+                    </td>
+                    <td class="tabular-nums font-semibold text-navy">
+                      {money(c.value)}
+                    </td>
+                    <td class="tabular-nums text-muted">
+                      {c.confidence === null
+                        ? "—"
+                        : `${Math.round(c.confidence * 100)}%`}
+                    </td>
+                    <td>
+                      {c.review && <Badge variant="amber">Review</Badge>}
+                    </td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          );
+        })()}
         <details>
           <summary class="mono cursor-pointer text-xs uppercase tracking-wide text-faint">
             Raw response

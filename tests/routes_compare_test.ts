@@ -104,4 +104,51 @@ Deno.test("GET /compare?eins=&model= renders orgs head-to-head (mode 2)", async 
   assertStringIncludes(res.body, "Head-to-head");
   assertStringIncludes(res.body, "Acme");
   assertStringIncludes(res.body, "70.0%");
+  // A single year (one point) is not a trend — the chart section is omitted.
+  assert(
+    !res.body.includes("Score trend over time"),
+    "no trend chart for a single-year history",
+  );
+});
+
+Deno.test("GET /compare?eins=&model= renders a trend chart with ≥2 years", async () => {
+  const res = await appRequest("/compare?eins=000000001&model=30", {
+    cookie: sessionCookie(VIEWER),
+    backend: {
+      "/templates": () =>
+        jsonResponse({
+          templates: [{
+            code: "overall",
+            name: "Overall Score",
+            kind: "super_composite",
+            type: "financial",
+            version: 30,
+          }],
+        }),
+      "/scores/history": () =>
+        jsonResponse({
+          ein: "000000001",
+          model_version: 30,
+          history: [
+            { year: 2022, total_score: 0.6, imputed: false, score_id: 1 },
+            { year: 2023, total_score: 0.72, imputed: false, score_id: 2 },
+          ],
+        }),
+      "/organizations/detail": () =>
+        jsonResponse({ ein: "000000001", name: "Acme" }),
+      "/organizations/full": () =>
+        jsonResponse({
+          ein: "000000001",
+          name: "Acme",
+          filings: [
+            { filing_id: "f1", year: 2022, form_code: "990" },
+            { filing_id: "f2", year: 2023, form_code: "990" },
+          ],
+        }),
+    },
+  });
+  assertEquals(res.status, 200);
+  // The trend section + its accessible chart label render with ≥2 points.
+  assertStringIncludes(res.body, "Score trend over time");
+  assertStringIncludes(res.body, "Score trend over filing years");
 });

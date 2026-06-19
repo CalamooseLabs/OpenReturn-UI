@@ -11,7 +11,7 @@ import type { Principal } from "../src/lib/types.ts";
 
 const fetcher = (server as { fetch: (r: Request) => Promise<Response> }).fetch;
 
-export type BackendResponder = (req: Request) => Response;
+export type BackendResponder = (req: Request) => Response | Promise<Response>;
 
 export interface AppRequestOpts {
   method?: string;

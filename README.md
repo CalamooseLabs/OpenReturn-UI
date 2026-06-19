@@ -26,30 +26,31 @@ The dev shell also exposes shortcuts: `dev`, `build`, `serve`, `check`.
 
 ## Configuration (environment)
 
-| Variable                                    | Default                 | Purpose                                                                   |
-| ------------------------------------------- | ----------------------- | ------------------------------------------------------------------------- |
-| `OPENRETURN_API_URL`                        | `http://localhost:8080` | Base URL of the OpenReturn API (called server-side).                      |
+| Variable                                    | Default                 | Purpose                                                                                                                        |
+| ------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `OPENRETURN_API_URL`                        | `http://localhost:8080` | Base URL of the OpenReturn API (called server-side).                                                                           |
 | `OPENRETURN_API_TIMEOUT_MS`                 | `10000`                 | Per-call timeout for API requests (each page SSR-awaits them, so a hung backend can't stall the render forever). `0` disables. |
-| `COOKIE_SECURE`                             | `false`                 | Set `true` when served over HTTPS so the session cookie carries `Secure`. |
-| `OPENRETURN_UI_PORT` / `OPENRETURN_UI_HOST` | `8000` / `0.0.0.0`      | Bind for the production launcher (`bin/openreturn-ui`).                   |
+| `COOKIE_SECURE`                             | `false`                 | Set `true` when served over HTTPS so the session cookie carries `Secure`.                                                      |
+| `OPENRETURN_UI_PORT` / `OPENRETURN_UI_HOST` | `8000` / `0.0.0.0`      | Bind for the production launcher (`bin/openreturn-ui`).                                                                        |
 
 ## Pages
 
-| Route                     | What it does                                                                     | Key API calls                                                                                            |
-| ------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `/login`, `/logout`       | Session auth (sets/clears the cookie)                                            | `POST /auth/login`, `/auth/me`, `/auth/logout`                                                           |
-| `/`                       | Dashboard: quick search, watchlist, stats                                        | `/organizations`, `/follows`, `/templates`                                                               |
-| `/search`                 | Filterable org search (name/EIN/state/city/sector/type/grantmaker)               | `/organizations/search`, `/organizations/{sectors,states}`                                               |
-| `/orgs/{ein}`             | Org detail: score history, ranking, financials, grants, filings; follow/unfollow | `/organizations/full`, `/scores/{history,ranking}`, `/financials`, `/organizations/grants`, `/follows/*` |
-| `/reports`                | Leaderboards & rankings by model, with subset filters; **export to PDF / CSV**   | `/scores/leaderboard`                                                                                    |
-| `/models`                 | Model catalog, factor inspector, and an admin model builder                      | `/templates`, `/scores/factors`, `/admin/models`                                                         |
-| `/compare`                | One org across models, or orgs head-to-head                                      | `/scores/compare`, `/scores/history`                                                                     |
-| `/lists`, `/lists/{id}`   | Static/smart organization lists + members                                        | `/lists`, `/lists/detail`, `/lists/members/*`                                                            |
-| `/people`, `/people/{id}` | People CRM + org memberships                                                     | `/people`, `/people/detail`, `/people/membership/*`                                                      |
-| `/tags`                   | Tag browser; apply/remove tags on orgs                                           | `/tags`, `/tags/organizations`, `/tags/remove`                                                           |
-| `/financials`             | Financial-fact stewardship: resolve source conflicts                             | `/financials`, `/financials/conflicts`, `/financials/canonical`                                          |
-| `/upload`                 | Bulk ZIP of 990 XML + OCR a single 990 PDF (`upload:write`)                      | `POST /upload`, `POST /upload/pdf`                                                                       |
-| `/admin`, `/admin/roles`  | User, role & permission administration (`user:admin`)                            | `/admin/users`, `/admin/roles`, `/admin/permissions`                                                     |
+| Route                     | What it does                                                                                                                                                              | Key API calls                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/login`, `/logout`       | Session auth (sets/clears the cookie)                                                                                                                                     | `POST /auth/login`, `/auth/me`, `/auth/logout`                                                                 |
+| `/`                       | Dashboard: quick search, watchlist, stats                                                                                                                                 | `/organizations`, `/follows`, `/templates`                                                                     |
+| `/search`                 | Filterable org search (name/EIN/state/city/sector/type/grantmaker)                                                                                                        | `/organizations/search`, `/organizations/{sectors,states}`                                                     |
+| `/orgs/{ein}`             | Org detail: score history, ranking, financials, grants, filings; follow/unfollow                                                                                          | `/organizations/full`, `/scores/{history,ranking}`, `/financials`, `/organizations/grants`, `/follows/*`       |
+| `/reports`                | Leaderboards & rankings by model, with subset filters; **export to PDF / CSV**                                                                                            | `/scores/leaderboard`                                                                                          |
+| `/models`                 | Model catalog, factor inspector, a structured admin model builder (field-by-field factors + live JSON preview, Advanced-JSON fallback), and **edit** of an existing model | `/templates`, `/scores/factors`, `/scores/{kinds,types}`, `/admin/models`, `/admin/models/{definition,update}` |
+| `/grade`                  | Manual grading: score a manual model's factors for an org+year (value + comment), with the recomputed total (`score:write`)                                               | `/scores/factors`, `/organizations/full`, `/scores`, `/scores/detail`, `POST /scores` + `/scores/grade`        |
+| `/compare`                | One org across models, or orgs head-to-head — with a multi-org **score-trend chart** over filing years                                                                    | `/scores/compare`, `/scores/history`                                                                           |
+| `/lists`, `/lists/{id}`   | Static/smart organization lists + members                                                                                                                                 | `/lists`, `/lists/detail`, `/lists/members/*`                                                                  |
+| `/people`, `/people/{id}` | People CRM + org memberships                                                                                                                                              | `/people`, `/people/detail`, `/people/membership/*`                                                            |
+| `/tags`                   | Tag browser; apply/remove tags on orgs                                                                                                                                    | `/tags`, `/tags/organizations`, `/tags/remove`                                                                 |
+| `/financials`             | Financial-fact stewardship: **record a source's values** (`data:write`) and resolve source conflicts                                                                      | `/financials`, `/financials/{conflicts,concepts,sources}`, `POST /financials/{observations,canonical}`         |
+| `/upload`                 | Bulk ZIP of 990 XML + OCR a single 990 PDF — with the extracted concepts, the detected form, and a **review flag** on low-confidence readings (`upload:write`)            | `POST /upload`, `POST /upload/pdf`                                                                             |
+| `/admin`, `/admin/roles`  | User, role & permission administration (`user:admin`)                                                                                                                     | `/admin/users`, `/admin/roles`, `/admin/permissions`                                                           |
 
 Page links adapt to the caller's permissions: the **Data** menu (Lists, People,
 Tags, Financials, and Upload when `upload:write`) and **Admin** appear only when
@@ -123,7 +124,8 @@ src/
   islands/         client-side interactive components
                    (NavProgress = global top progress bar during navigation,
                     mounted in _app.tsx; SubmitButton = disable+spinner on slow
-                    form submits; ModelWalkthrough; PrintButton)
+                    form submits; ModelBuilder = structured model-definition
+                    builder on /models; ModelWalkthrough; PrintButton)
   routes/          pages + _app/_404/_error
   static/ assets/  static files + the Tailwind stylesheet entry
 ```

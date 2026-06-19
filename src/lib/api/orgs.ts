@@ -23,11 +23,24 @@ export interface GrantSummary {
   by_year?: { year: number; amount: number }[];
 }
 
+/** One grant edge. `recipient`/`recipient_ein` are set for direction=made,
+ * `grantor`/`grantor_ein` for direction=received. `amount` = cash + non-cash. */
+export interface Grant {
+  year: number;
+  amount: number;
+  purpose?: string | null;
+  grant_kind?: string | null;
+  recipient?: string | null;
+  recipient_ein?: string | null;
+  grantor?: string | null;
+  grantor_ein?: string | null;
+}
+
 export interface GrantsResponse {
   ein: string;
   direction: string;
   summary: GrantSummary;
-  grants: unknown[];
+  grants: Grant[];
 }
 
 /** /organizations* — search, lookup, vocab, grants, and mutations. */
