@@ -151,6 +151,9 @@ Deno.test("GET /orgs/:ein renders the org dashboard", async () => {
   // A nonprofit gets "Add to portfolio" (not Follow); an editor sees Edit.
   assertStringIncludes(res.body, "Add to portfolio");
   assertStringIncludes(res.body, "/orgs/000000001/edit");
+  // The top "Update data" button opens the model-data panel.
+  assertStringIncludes(res.body, "Update data");
+  assertStringIncludes(res.body, "panel=");
 });
 
 Deno.test("GET /orgs/:ein surfaces grant flows when present", async () => {
@@ -396,6 +399,22 @@ Deno.test("GET /orgs/:ein?panel= opens the model-data modal", async () => {
             fiscal_year: 2023,
             concept_code: "cy_rev",
             canonical_value: 1000000,
+            canonical_source: "manual_990",
+            conflict: false,
+            observations: [
+              {
+                observation_id: 1,
+                source_code: "irs_990_xml",
+                value: 950000,
+                is_canonical: false,
+              },
+              {
+                observation_id: 2,
+                source_code: "manual_990",
+                value: 1000000,
+                is_canonical: true,
+              },
+            ],
           }],
         }),
       "/financials/concepts": () =>
@@ -430,6 +449,9 @@ Deno.test("GET /orgs/:ein?panel= opens the model-data modal", async () => {
   assertStringIncludes(res.body, "Custom data");
   assertStringIncludes(res.body, "board policy changed"); // the model-year note
   assertStringIncludes(res.body, "Current-year total revenue"); // financial figure label
+  // The source chooser renders both observations (choose which data to use).
+  assertStringIncludes(res.body, "use:");
+  assertStringIncludes(res.body, "fin_set_canonical");
 });
 
 Deno.test("POST /orgs/:ein mdnote_add reopens the panel", async () => {

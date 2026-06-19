@@ -90,6 +90,8 @@ export function OrgHero(props: {
   showActions?: boolean;
   canPortfolio?: boolean;
   canEdit?: boolean;
+  /** When set, a prominent "Update Data" button opens the model-data panel. */
+  updateDataHref?: string;
   tags: string[];
   canTag?: boolean;
 }) {
@@ -245,12 +247,29 @@ export function OrgHero(props: {
             const showAction = isFoundation
               ? props.showActions
               : props.canPortfolio;
-            if (!showAction && !props.canEdit) return null;
+            if (
+              !showAction && !props.canEdit && !props.updateDataHref
+            ) return null;
             return (
               <div
                 class="mt-6 flex flex-wrap items-center"
                 style={{ gap: "10px" }}
               >
+                {props.updateDataHref && (
+                  <a
+                    href={props.updateDataHref}
+                    class="mono inline-flex items-center rounded-full font-semibold"
+                    style={{
+                      border: "1px solid #9fb6e6",
+                      background: "rgba(159,182,230,.16)",
+                      padding: "9px 18px",
+                      fontSize: "13px",
+                      color: "#eef1f7",
+                    }}
+                  >
+                    ⬍ Update data
+                  </a>
+                )}
                 {props.canEdit && (
                   <a
                     href={`/orgs/${props.ein}/edit`}

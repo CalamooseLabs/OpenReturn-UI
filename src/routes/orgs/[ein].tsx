@@ -248,12 +248,20 @@ export const handler = define.handlers({
 
     const conceptNames: Record<string, string> = {};
     const conceptCats: Record<string, string | null> = {};
-    const conceptList: { code: string; label: string }[] = [];
+    const conceptList: {
+      code: string;
+      label: string;
+      category: string | null;
+    }[] = [];
     if (conceptsR.status === "fulfilled") {
       for (const c of conceptsR.value.concepts ?? []) {
         conceptNames[c.code] = c.label; // backend returns `label` (the full name)
         conceptCats[c.code] = c.category ?? null;
-        conceptList.push({ code: c.code, label: c.label });
+        conceptList.push({
+          code: c.code,
+          label: c.label,
+          category: c.category ?? null,
+        });
       }
     }
 
@@ -430,6 +438,21 @@ export const handler = define.handlers({
               concept: s("concept"),
               value,
               note: s("note") || undefined,
+            });
+            const e = softError(res);
+            if (e) return back(panelQ(e));
+          }
+          return back(panelQ());
+        }
+        case "fin_set_canonical": {
+          // Choose which observation/source is the value of record for a concept.
+          const obsId = Number(s("observation_id"));
+          if (s("concept") && panelY && !isNaN(obsId)) {
+            const res = await api.financials.setCanonical({
+              ein,
+              fiscal_year: Number(panelY),
+              concept: s("concept"),
+              observation_id: obsId,
             });
             const e = softError(res);
             if (e) return back(panelQ(e));
@@ -700,6 +723,19 @@ export default define.page<typeof handler>((ctx) => {
 
   const loggedIn = !!state.principal;
 
+  // "Update data" opens the model-data panel for the org's primary scored model
+  // (the financial pillar, else the overall) at the latest year.
+  const canUpdateData = can(state.principal, "data:write") ||
+    can(state.principal, "score:write") ||
+    can(state.principal, "model_data:write");
+  const dataVersion = data.pillarBreakdown[0]?.version ?? data.overallVersion;
+  const updateDataHref =
+    canUpdateData && dataVersion && latestYear !== undefined
+      ? `/orgs/${org.ein}?panel=${
+        encodeURIComponent(dataVersion)
+      }&panelYear=${latestYear}`
+      : undefined;
+
   return (
     <Layout principal={state.principal} path={ctx.url.pathname} bleed>
       <OrgHero
@@ -721,6 +757,7 @@ export default define.page<typeof handler>((ctx) => {
         showActions={loggedIn}
         canPortfolio={can(state.principal, "org:write")}
         canEdit={can(state.principal, "org:write")}
+        updateDataHref={updateDataHref}
         tags={data.tags}
         canTag={can(state.principal, "tag:write")}
       />
