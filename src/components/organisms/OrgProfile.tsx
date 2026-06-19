@@ -1,21 +1,24 @@
 // ── Organisms: Org Profile ───────────────────────────────────────────────────
-// The bespoke sections of the org-profile screen (routes/orgs/[ein].tsx), each
-// a self-contained organism taking plain data props (no fetching):
-//   OrgHero          — navy hero: identity + meta + OVERALL gauge + follow form
-//   ScoreRingsRail   — the four pillar gauge rings rail
-//   FinancialPicture — KPI grid + score/revenue trend chart
-//   WhyThisScore     — band-driven reason bullets + category percentile
-//   KeyPersonnel     — program photo placeholder + personnel cards
+// The bespoke server-rendered sections of the org-profile screen
+// (routes/orgs/[ein].tsx), each a self-contained organism taking plain data
+// props (no fetching):
+//   OrgHero        — navy hero: identity, mission, website, tags, provenance,
+//                    OVERALL gauge, the follow/portfolio action + edit button
+//   ScoreRingsRail — the four pillar gauge rings rail
+//   WhyThisScore   — per-pillar factor breakdown (name / weight / grade) + percentile
+//   UpdatesPanel   — shared team notes / updates (post + remove)
 //
-// Composes atoms (GaugeRing) + molecule-grade vocabulary while preserving the
-// faithful navy look. money/format + score-band logic come from lib/*.
+// The interactive sections live in islands (client tab/expand/modal state):
+// FinancialTabs (overview + by-year table), GrantsPanel (made/received/giving),
+// KeyPersonnel (recent-filing toggle), FilingsTable (detail modal). money/format
+// + score-band logic come from lib/*.
 
 import type { ComponentChildren } from "preact";
+import { Fragment } from "preact";
 import { GaugeRing } from "../atoms.tsx";
-import { formatEin, money, number, titleCase } from "../../lib/format.ts";
-import { letterGrade, ordinal, scoreBand } from "../../lib/score.ts";
-import { ScoreTrendChart, seriesFromHistory } from "./ScoreTrendChart.tsx";
-import type { Person, ScoreHistoryRow } from "../../lib/types.ts";
+import { dateOnly, formatEin } from "../../lib/format.ts";
+import { letterGrade, ordinal, scoreBand, to100 } from "../../lib/score.ts";
+import type { OrgNote } from "../../lib/types.ts";
 
 /** A pillar in the rings rail: its label + the (already 0–100) value. */
 export interface PillarDatum {
@@ -23,29 +26,90 @@ export interface PillarDatum {
   value: number | null;
 }
 
-/** A band-driven reason bullet (label + its 0–100 value). */
-export interface Reason {
+/** One factor's contribution to a pillar model's score. `weighted_value` is its
+ * share of the model total (normalized × weight); `weighted_value / weight` is
+ * the factor's own normalized 0–1 score. */
+export interface FactorBreakdown {
+  name: string;
+  weight: number;
+  weighted_value: number | null;
+}
+
+/** A pillar model's score + its per-factor breakdown (how the grade is built). */
+export interface PillarBreakdown {
   label: string;
-  value: number;
+  version?: string; // the pillar model's version (drives the "Manage data" panel)
+  total: number | null; // the model's 0–1 total_score
+  factors: FactorBreakdown[];
 }
 
 // ───────────────────────────── OrgHero ─────────────────────────────
+const META_DIM = "rgba(238,241,247,.6)";
+const ACCENT = "#9fb6e6";
+
+/** A pill-shaped action button rendered inside a one-field POST form. */
+function ActionForm(
+  props: { action: string; active: boolean; label: string },
+) {
+  return (
+    <form method="POST">
+      <input type="hidden" name="action" value={props.action} />
+      <button
+        type="submit"
+        class="mono inline-flex items-center rounded-full font-semibold"
+        style={{
+          border: "1px solid rgba(238,241,247,.4)",
+          padding: "9px 18px",
+          fontSize: "13px",
+          color: "#eef1f7",
+          background: props.active ? "rgba(238,241,247,.14)" : "transparent",
+        }}
+      >
+        {props.label}
+      </button>
+    </form>
+  );
+}
+
 export function OrgHero(props: {
   name: string;
   ein: string;
   category: string;
   city?: string | null;
   state?: string | null;
+  website?: string | null;
+  mission?: string | null;
+  latestForm?: string | null;
   latestYear?: number;
+  provenance?: string;
   overall: number | null;
   overallSub?: string;
+  orgType?: string | null;
   following?: boolean;
-  showFollow?: boolean;
+  inPortfolio?: boolean;
+  showActions?: boolean;
+  canPortfolio?: boolean;
+  canEdit?: boolean;
+  tags: string[];
+  canTag?: boolean;
 }) {
+  const isFoundation = props.orgType === "foundation";
+  // Only render an http(s) website as a link (a free-text field could hold a
+  // javascript:/data: URI); anything else shows as plain text.
+  const safeWebsite = props.website && /^https?:\/\//i.test(props.website)
+    ? props.website
+    : null;
+  const verified = props.latestYear
+    ? `${
+      (props.latestForm || "990").replace(/^IRS/, "")
+    } · FY${props.latestYear}${
+      props.provenance ? ` · ${props.provenance}` : ""
+    }`
+    : "No filings on record";
   return (
     <div class="bg-navy text-white" style={{ padding: "42px 44px" }}>
       <div
-        class="mx-auto flex flex-wrap items-center gap-11"
+        class="mx-auto flex flex-wrap items-start gap-11"
         style={{ maxWidth: "1340px" }}
       >
         <div class="min-w-0 flex-1">
@@ -56,43 +120,41 @@ export function OrgHero(props: {
               padding: "5px 13px",
               fontSize: "12px",
               letterSpacing: ".04em",
-              color: "#9fb6e6",
+              color: ACCENT,
             }}
           >
             {props.category}
           </div>
           <h1
-            class="font-display font-bold text-white"
+            class="font-display font-bold"
             style={{
               fontSize: "50px",
               lineHeight: "1.0",
               letterSpacing: "-0.03em",
               margin: "0 0 16px",
+              color: "#ffffff",
             }}
           >
             {props.name}
           </h1>
-          {/* TODO: wire to API — no mission text in /organizations/full yet */}
           <p
             style={{
               fontSize: "17px",
               lineHeight: "1.55",
-              color: "rgba(238,241,247,.74)",
-              maxWidth: "440px",
+              color: props.mission
+                ? "rgba(238,241,247,.82)"
+                : "rgba(238,241,247,.5)",
+              maxWidth: "560px",
               margin: "0 0 22px",
               textWrap: "pretty",
             }}
           >
-            Advancing its charitable mission through programs and services
-            reported on its annual Form 990 filings.
+            {props.mission ??
+              "No mission statement on file from recent filings."}
           </p>
           <div
             class="mono flex flex-wrap"
-            style={{
-              gap: "18px",
-              fontSize: "12px",
-              color: "rgba(238,241,247,.6)",
-            }}
+            style={{ gap: "18px", fontSize: "12px", color: META_DIM }}
           >
             <span>EIN {formatEin(props.ein)}</span>
             {props.city && (
@@ -100,37 +162,135 @@ export function OrgHero(props: {
                 {[props.city, props.state].filter(Boolean).join(", ")}
               </span>
             )}
-            <span style={{ color: "#9fb6e6" }}>
-              Verified 990{props.latestYear ? ` · FY${props.latestYear}` : ""}
-            </span>
-          </div>
-          {props.showFollow && (
-            <div class="mt-6">
-              <form method="POST">
-                <input
-                  type="hidden"
-                  name="action"
-                  value={props.following ? "unfollow" : "follow"}
-                />
-                <button
-                  type="submit"
-                  class="mono inline-flex items-center rounded-full font-semibold"
-                  style={{
-                    border: "1px solid rgba(238,241,247,.4)",
-                    padding: "9px 18px",
-                    fontSize: "13px",
-                    color: "#eef1f7",
-                    background: props.following
-                      ? "rgba(238,241,247,.12)"
-                      : "transparent",
-                  }}
+            {safeWebsite
+              ? (
+                <a
+                  href={safeWebsite}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: ACCENT, textDecoration: "underline" }}
                 >
-                  {props.following ? "✓ Following" : "+ Follow"}
-                </button>
+                  {safeWebsite.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                </a>
+              )
+              : props.website
+              ? <span>{props.website}</span>
+              : null}
+            <span style={{ color: ACCENT }}>{verified}</span>
+          </div>
+
+          {/* tags */}
+          <div class="mt-5 flex flex-wrap items-center" style={{ gap: "8px" }}>
+            {props.tags.map((t) => (
+              <span
+                key={t}
+                class="mono inline-flex items-center rounded-full"
+                style={{
+                  gap: "6px",
+                  background: "rgba(238,241,247,.12)",
+                  border: "1px solid rgba(238,241,247,.22)",
+                  padding: "3px 10px",
+                  fontSize: "11.5px",
+                  color: "#eef1f7",
+                }}
+              >
+                {t}
+                {props.canTag && (
+                  <form method="POST" style={{ display: "inline" }}>
+                    <input type="hidden" name="action" value="tag_remove" />
+                    <input type="hidden" name="tag" value={t} />
+                    <button
+                      type="submit"
+                      title={`Remove tag ${t}`}
+                      style={{ color: ACCENT, fontSize: "11px", lineHeight: 1 }}
+                    >
+                      ✕
+                    </button>
+                  </form>
+                )}
+              </span>
+            ))}
+            {props.canTag && (
+              <form
+                method="POST"
+                class="inline-flex items-center"
+                style={{ gap: "6px" }}
+              >
+                <input type="hidden" name="action" value="tag_add" />
+                <input
+                  name="tag"
+                  placeholder="+ tag"
+                  required
+                  class="mono"
+                  style={{
+                    background: "rgba(238,241,247,.1)",
+                    border: "1px solid rgba(238,241,247,.22)",
+                    borderRadius: "999px",
+                    padding: "3px 11px",
+                    fontSize: "11.5px",
+                    color: "#fff",
+                    width: "92px",
+                  }}
+                />
               </form>
-            </div>
-          )}
+            )}
+          </div>
+
+          {
+            /* actions: edit + follow (foundations) / portfolio (nonprofits).
+              Follow needs only a logged-in user (follow:write is broadly granted);
+              the shared portfolio flag needs org:write, so gate it on canPortfolio. */
+          }
+          {(() => {
+            const showAction = isFoundation
+              ? props.showActions
+              : props.canPortfolio;
+            if (!showAction && !props.canEdit) return null;
+            return (
+              <div
+                class="mt-6 flex flex-wrap items-center"
+                style={{ gap: "10px" }}
+              >
+                {props.canEdit && (
+                  <a
+                    href={`/orgs/${props.ein}/edit`}
+                    class="mono inline-flex items-center rounded-full font-semibold"
+                    style={{
+                      border: "1px solid rgba(238,241,247,.4)",
+                      padding: "9px 18px",
+                      fontSize: "13px",
+                      color: "#eef1f7",
+                    }}
+                  >
+                    ✎ Edit
+                  </a>
+                )}
+                {showAction && (
+                  isFoundation
+                    ? (
+                      <ActionForm
+                        action={props.following ? "unfollow" : "follow"}
+                        active={!!props.following}
+                        label={props.following ? "✓ Following" : "+ Follow"}
+                      />
+                    )
+                    : (
+                      <ActionForm
+                        action={props.inPortfolio
+                          ? "portfolio_remove"
+                          : "portfolio_add"}
+                        active={!!props.inPortfolio}
+                        label={props.inPortfolio
+                          ? "✓ In portfolio"
+                          : "+ Add to portfolio"}
+                      />
+                    )
+                )}
+              </div>
+            );
+          })()}
         </div>
+
         {/* overall gauge ring */}
         <div class="flex shrink-0 flex-col items-center gap-3.5">
           <GaugeRing
@@ -141,9 +301,7 @@ export function OrgHero(props: {
             sub={props.overallSub}
           />
           {props.overall === null && (
-            <span class="mono text-xs" style={{ color: "#9fb6e6" }}>
-              Pending
-            </span>
+            <span class="mono text-xs" style={{ color: ACCENT }}>Pending</span>
           )}
         </div>
       </div>
@@ -163,7 +321,7 @@ export function ScoreRingsRail(props: { pillars: PillarDatum[] }) {
           const v = p.value;
           const has = v !== null;
           return (
-            <>
+            <Fragment key={p.label}>
               {i > 0 && (
                 <div class="self-stretch bg-line" style={{ width: "1px" }} />
               )}
@@ -198,7 +356,7 @@ export function ScoreRingsRail(props: { pillars: PillarDatum[] }) {
                     )}
                 </div>
               </div>
-            </>
+            </Fragment>
           );
         })}
       </div>
@@ -206,153 +364,69 @@ export function ScoreRingsRail(props: { pillars: PillarDatum[] }) {
   );
 }
 
-// ────────────────────────── FinancialPicture ──────────────────────────
-/** A big-figure financial KPI cell. */
-function Kpi(props: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div>
-      <div class="text-muted" style={{ fontSize: "12px", marginBottom: "5px" }}>
-        {props.label}
-      </div>
-      <div
-        class="font-display font-bold"
-        style={{
-          fontSize: "27px",
-          letterSpacing: "-0.02em",
-          color: props.accent ? "#2f4a85" : "#222838",
-        }}
-      >
-        {props.value}
-      </div>
-    </div>
-  );
-}
-
-/** Compact "$18.4M" / "$920K" money for the big KPI figures. */
-export function moneyCompact(value: number | null): string {
-  if (value === null || isNaN(value)) return "—";
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
-  if (abs >= 1_000_000_000) {
-    return `${sign}$${(abs / 1_000_000_000).toFixed(1)}B`;
-  }
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}$${Math.round(abs / 1_000)}K`;
-  return money(value);
-}
-
-/**
- * Compact area chart of the org's overall-score history (from /scores/history),
- * plotted 0–100 across the org's filing years. Imputed years render as hollow
- * points; hover any point for its year + score. (Shared ScoreTrendChart.)
- */
-function ScoreTrend(props: { rows: ScoreHistoryRow[] }) {
-  const rows = props.rows;
-  const firstYear = rows[0].year;
-  const lastYear = rows[rows.length - 1].year;
-  const anyImputed = rows.some((r) => r.imputed);
-  const series = seriesFromHistory("Overall", "#3a5da8", rows);
-  return (
-    <>
-      <div
-        class="flex items-baseline justify-between"
-        style={{ marginBottom: "8px" }}
-      >
-        <div class="text-muted" style={{ fontSize: "12px" }}>
-          Score trend · {firstYear} → {lastYear}
-        </div>
-        {anyImputed && (
-          <span class="mono text-faint" style={{ fontSize: "11px" }}>
-            ○ estimated
-          </span>
-        )}
-      </div>
-      <ScoreTrendChart series={[series]} area compact />
-    </>
-  );
-}
-
-export function FinancialPicture(props: {
-  revenue: number | null;
-  expenses: number | null;
-  netAssets: number | null;
-  programRatio: number | null;
-  trend: ScoreHistoryRow[];
-}) {
-  const haveTrend = props.trend.length >= 2;
-  return (
-    <div class="card" style={{ borderRadius: "20px", padding: "26px" }}>
-      <h2
-        class="font-display font-bold text-navy"
-        style={{
-          fontSize: "18px",
-          margin: "0 0 20px",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        Financial picture
-      </h2>
-      <div
-        class="grid"
-        style={{
-          gridTemplateColumns: "1fr 1fr",
-          gap: "20px 16px",
-          marginBottom: "24px",
-        }}
-      >
-        <Kpi label="Total revenue" value={moneyCompact(props.revenue)} />
-        <Kpi label="Total expenses" value={moneyCompact(props.expenses)} />
-        <Kpi label="Net assets" value={moneyCompact(props.netAssets)} />
-        <Kpi
-          label="Program ratio"
-          value={props.programRatio !== null
-            ? `${props.programRatio.toFixed(1)}%`
-            : "—"}
-          accent
-        />
-      </div>
-
-      {haveTrend ? <ScoreTrend rows={props.trend} /> : (
-        <>
-          <div
-            class="text-muted"
-            style={{ fontSize: "12px", marginBottom: "8px" }}
-          >
-            Revenue trend
-          </div>
-          {/* TODO: wire to API — needs ≥2 years of canonical financials */}
-          <svg
-            viewBox="0 0 320 90"
-            width="100%"
-            height="90"
-            preserveAspectRatio="none"
-            style={{ display: "block" }}
-          >
-            <path
-              d="M0,69.6 L80,53.5 L160,40.3 L240,24.2 L320,10 L320,90 L0,90 Z"
-              fill="#dde7f6"
-            />
-            <path
-              d="M0,69.6 L80,53.5 L160,40.3 L240,24.2 L320,10"
-              fill="none"
-              stroke="#3a5da8"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </>
-      )}
-    </div>
-  );
-}
-
 // ─────────────────────────── WhyThisScore ───────────────────────────
+/** Render one factor row: its name, a normalized 0–100 grade bar, and weight. */
+function FactorRow(props: { factor: FactorBreakdown }) {
+  const { name, weight, weighted_value } = props.factor;
+  // weighted_value = normalized(0–1) × weight, so normalized = weighted/weight.
+  const normalized =
+    weight && weighted_value !== null && weighted_value !== undefined
+      ? weighted_value / weight
+      : null;
+  const grade = to100(normalized);
+  const band = grade !== null ? scoreBand(grade) : null;
+  return (
+    <div class="flex items-center justify-between" style={{ gap: "12px" }}>
+      <div class="min-w-0 flex-1">
+        <div
+          class="truncate text-navy"
+          style={{ fontSize: "13px" }}
+          title={name}
+        >
+          {name}
+        </div>
+        <div
+          class="overflow-hidden rounded-full bg-line"
+          style={{ height: "5px", marginTop: "5px" }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${grade ?? 0}%`,
+              background: band ? band.hex : "#cbd2df",
+              borderRadius: "999px",
+            }}
+          />
+        </div>
+      </div>
+      <div class="shrink-0 text-right" style={{ minWidth: "78px" }}>
+        <span
+          class="mono font-semibold"
+          style={{ fontSize: "12.5px", color: band ? band.hex : "#8893ab" }}
+        >
+          {grade ?? "—"}
+        </span>
+        <div class="mono text-faint" style={{ fontSize: "10.5px" }}>
+          weight {weight}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WhyThisScore(props: {
-  reasons: Reason[];
+  breakdown: PillarBreakdown[];
   percentile?: number;
   hasGlobalRank: boolean;
+  /** When set (with manageYear + canManage), each pillar gets a "Manage data"
+   * link that opens the model-data panel for that model + year. */
+  ein?: string;
+  manageYear?: number;
+  canManage?: boolean;
 }) {
+  const scored = props.breakdown.filter((p) => p.factors.length > 0);
+  const canManage = props.canManage && props.ein &&
+    props.manageYear !== undefined;
   return (
     <div class="card" style={{ borderRadius: "20px", padding: "26px" }}>
       <h2
@@ -365,46 +439,62 @@ export function WhyThisScore(props: {
       >
         Why this score
       </h2>
-      {props.reasons.length === 0
+      {scored.length === 0
         ? (
           <p class="text-muted" style={{ fontSize: "13.5px" }}>
             This organization has not been scored yet.
           </p>
         )
         : (
-          <div class="flex flex-col" style={{ gap: "14px" }}>
-            {props.reasons.map((r) => (
-              <div class="flex" style={{ gap: "12px" }}>
-                <span
-                  class="shrink-0"
-                  style={{
-                    width: "6px",
-                    borderRadius: "3px",
-                    background: scoreBand(r.value).hex,
-                  }}
-                />
-                <p
-                  style={{
-                    margin: "0",
-                    fontSize: "13.5px",
-                    lineHeight: "1.55",
-                    color: "#454b58",
-                  }}
-                >
-                  <strong class="text-navy">
-                    {r.label} ({r.value}).
-                  </strong>{" "}
-                  {scoreBand(r.value).name === "Strong"
-                    ? "A standout strength — well above peer benchmarks."
-                    : scoreBand(r.value).name === "Solid"
-                    ? "Healthy and dependable, in line with strong peers."
-                    : scoreBand(r.value).name === "Watch"
-                    ? "Adequate, but worth monitoring against peers."
-                    : "Below benchmark — a priority area for improvement."}
-                  {/* TODO: wire to API — narrative factor commentary */}
-                </p>
-              </div>
-            ))}
+          <div class="flex flex-col" style={{ gap: "22px" }}>
+            {scored.map((p) => {
+              const grade = to100(p.total);
+              const band = grade !== null ? scoreBand(grade) : null;
+              return (
+                <div key={p.label}>
+                  <div
+                    class="flex items-baseline justify-between"
+                    style={{ marginBottom: "10px" }}
+                  >
+                    <span
+                      class="font-semibold text-navy"
+                      style={{ fontSize: "13.5px" }}
+                    >
+                      {p.label}
+                    </span>
+                    <span class="flex items-baseline" style={{ gap: "10px" }}>
+                      <span
+                        class="mono font-semibold"
+                        style={{
+                          fontSize: "12.5px",
+                          color: band ? band.pillText : "#8893ab",
+                        }}
+                      >
+                        {grade !== null
+                          ? `Grade ${letterGrade(grade)} · ${grade}`
+                          : "Pending"}
+                      </span>
+                      {canManage && p.version && (
+                        <a
+                          class="link"
+                          style={{ fontSize: "11.5px" }}
+                          href={`/orgs/${props.ein}?panel=${
+                            encodeURIComponent(p.version)
+                          }&panelYear=${props.manageYear}`}
+                        >
+                          Manage data
+                        </a>
+                      )}
+                    </span>
+                  </div>
+                  <div class="flex flex-col" style={{ gap: "9px" }}>
+                    {p.factors.map((f) => (
+                      <FactorRow key={f.name} factor={f} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       {props.hasGlobalRank && (
@@ -441,260 +531,101 @@ export function WhyThisScore(props: {
   );
 }
 
-// ─────────────────────────── KeyPersonnel ───────────────────────────
-export function KeyPersonnel(props: { people: Person[] }) {
-  return (
-    <div
-      class="grid items-stretch"
-      style={{
-        padding: "0 44px 40px",
-        gridTemplateColumns: "1fr 1.1fr",
-        gap: "28px",
-      }}
-    >
-      {/* program photo placeholder */}
-      <div
-        class="flex items-center justify-center"
-        style={{
-          borderRadius: "20px",
-          border: "1px dashed #b7c1d6",
-          background:
-            "repeating-linear-gradient(135deg,#e4e8f0,#e4e8f0 11px,#dce1ec 11px,#dce1ec 22px)",
-          minHeight: "200px",
-        }}
-      >
-        {/* TODO: wire to API — no program imagery in the 990 dataset */}
-        <span
-          class="mono"
-          style={{
-            fontSize: "12px",
-            color: "#8893ab",
-            background: "#eceff5",
-            padding: "6px 12px",
-            borderRadius: "7px",
-          }}
-        >
-          program photo — field operations
-        </span>
-      </div>
-
-      {/* people cards */}
-      <div>
-        <h2
-          class="font-display font-bold text-navy"
-          style={{
-            fontSize: "18px",
-            margin: "0 0 16px",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          Key personnel
-        </h2>
-        {props.people.length === 0
-          ? (
-            <div
-              class="card text-muted"
-              style={{
-                borderRadius: "14px",
-                padding: "15px",
-                fontSize: "13px",
-              }}
-            >
-              No personnel on record for this organization.
-            </div>
-          )
-          : (
-            <div
-              class="grid"
-              style={{ gridTemplateColumns: "1fr 1fr", gap: "12px" }}
-            >
-              {props.people.map((p) => (
-                <div
-                  class="card"
-                  style={{ borderRadius: "14px", padding: "15px" }}
-                >
-                  <div
-                    class="font-semibold text-navy"
-                    style={{ fontSize: "13.5px" }}
-                  >
-                    {p.full_name}
-                  </div>
-                  <div
-                    class="text-faint"
-                    style={{ fontSize: "12px", margin: "2px 0 0" }}
-                  >
-                    {p.title ? titleCase(p.title) : "—"}
-                  </div>
-                  {/* comp shows comp $; omitted — no compensation in API */}
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
-    </div>
-  );
-}
-
-/** Grant-flow panel: per direction (outbound foundation → recipients, inbound
- * funders → this org) a summary (count / total $ / distinct counterparties) plus
- * the largest few grants. Renders nothing when the org has no grant activity. */
-export interface GrantStat {
-  grant_count: number;
-  total_amount: number;
-  counterparties: number;
-}
-
-export interface GrantRow {
-  year: number;
-  amount: number;
-  recipient?: string | null;
-  grantor?: string | null;
-  purpose?: string | null;
-}
-
-export interface GrantFlow {
-  summary: GrantStat;
-  grants: GrantRow[];
-}
-
-/** How many grants to list per direction before "+N more". */
-const GRANTS_SHOWN = 5;
-
-export function GrantsSummary(
-  props: { made?: GrantFlow; received?: GrantFlow },
+// ─────────────────────────── UpdatesPanel (notes) ───────────────────────────
+export function UpdatesPanel(
+  props: { notes: OrgNote[]; canPost?: boolean },
 ) {
-  const cards: {
-    label: string;
-    sub: string;
-    party: string;
-    flow: GrantFlow;
-    nameOf: (g: GrantRow) => string;
-  }[] = [];
-  if (props.made && props.made.summary.grant_count > 0) {
-    cards.push({
-      label: "Grants made",
-      sub: "to recipients",
-      party: "Recipients",
-      flow: props.made,
-      nameOf: (g) => g.recipient || "Unnamed recipient",
-    });
-  }
-  if (props.received && props.received.summary.grant_count > 0) {
-    cards.push({
-      label: "Grants received",
-      sub: "from funders",
-      party: "Funders",
-      flow: props.received,
-      nameOf: (g) => g.grantor || "Unnamed funder",
-    });
-  }
-  if (cards.length === 0) return null;
-
-  const figure = (label: string, value: string) => (
-    <div>
-      <div
-        class="mono font-semibold text-navy"
-        style={{ fontSize: "17px", lineHeight: "1.1" }}
-      >
-        {value}
-      </div>
-      <div class="text-faint" style={{ fontSize: "11px", marginTop: "3px" }}>
-        {label}
-      </div>
-    </div>
-  );
-
   return (
-    <div style={{ padding: "0 44px 40px" }}>
+    <div>
       <h2
         class="font-display font-bold text-navy"
         style={{
           fontSize: "18px",
-          margin: "0 0 16px",
           letterSpacing: "-0.01em",
+          margin: "0 0 16px",
         }}
       >
-        Grants
+        Updates
       </h2>
-      <div
-        class="grid"
-        style={{
-          gridTemplateColumns: cards.length > 1 ? "1fr 1fr" : "1fr",
-          gap: "16px",
-        }}
-      >
-        {cards.map((c) => {
-          const top = [...c.flow.grants]
-            .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
-            .slice(0, GRANTS_SHOWN);
-          const more = c.flow.summary.grant_count - top.length;
-          return (
-            <div
-              class="card"
-              style={{ borderRadius: "14px", padding: "18px 20px" }}
-            >
-              <div class="font-semibold text-navy" style={{ fontSize: "14px" }}>
-                {c.label}
-              </div>
+      {props.canPost && (
+        <form method="POST" style={{ marginBottom: "16px" }}>
+          <input type="hidden" name="action" value="note_add" />
+          <textarea
+            name="body"
+            class="input"
+            required
+            rows={2}
+            placeholder="Post an update about this organization…"
+            style={{ resize: "vertical", marginBottom: "8px" }}
+          />
+          <button type="submit" class="btn btn-primary btn-sm">
+            Post update
+          </button>
+        </form>
+      )}
+      {props.notes.length === 0
+        ? (
+          <div
+            class="card text-muted"
+            style={{ borderRadius: "14px", padding: "15px", fontSize: "13px" }}
+          >
+            No updates yet.
+          </div>
+        )
+        : (
+          <div class="flex flex-col" style={{ gap: "10px" }}>
+            {props.notes.map((n) => (
               <div
-                class="text-faint"
-                style={{ fontSize: "12px", margin: "1px 0 15px" }}
+                key={n.note_id}
+                class="card"
+                style={{ borderRadius: "14px", padding: "14px 16px" }}
               >
-                {c.sub}
-              </div>
-              <div
-                class="grid"
-                style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}
-              >
-                {figure("Total", moneyCompact(c.flow.summary.total_amount))}
-                {figure("Grants", number(c.flow.summary.grant_count))}
-                {figure(c.party, number(c.flow.summary.counterparties))}
-              </div>
-              {top.length > 0 && (
-                <div style={{ marginTop: "16px" }}>
-                  {top.map((g) => (
-                    <div
-                      class="flex items-baseline justify-between gap-3"
-                      style={{
-                        padding: "7px 0",
-                        borderTop: "1px solid var(--color-line-soft)",
-                      }}
-                    >
-                      <span
-                        class="min-w-0 truncate text-navy"
-                        style={{ fontSize: "13px" }}
-                        title={c.nameOf(g)}
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "13.5px",
+                    lineHeight: "1.5",
+                    color: "#2b3242",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {n.body}
+                </p>
+                <div
+                  class="flex items-center justify-between"
+                  style={{ marginTop: "8px" }}
+                >
+                  <span class="mono text-faint" style={{ fontSize: "11px" }}>
+                    {n.author_label ?? "unknown"} · {dateOnly(n.created_at)}
+                  </span>
+                  {props.canPost && (
+                    <form method="POST" style={{ display: "inline" }}>
+                      <input type="hidden" name="action" value="note_delete" />
+                      <input
+                        type="hidden"
+                        name="note_id"
+                        value={String(n.note_id)}
+                      />
+                      <button
+                        type="submit"
+                        class="text-faint hover:text-band-low"
+                        title="Delete update"
+                        style={{ fontSize: "12px", lineHeight: 1 }}
                       >
-                        {c.nameOf(g)}
-                      </span>
-                      <span
-                        class="mono shrink-0 text-muted"
-                        style={{ fontSize: "12px" }}
-                      >
-                        {moneyCompact(g.amount)}
-                        {g.year ? ` · ${g.year}` : ""}
-                      </span>
-                    </div>
-                  ))}
-                  {more > 0 && (
-                    <div
-                      class="text-faint"
-                      style={{ fontSize: "12px", paddingTop: "8px" }}
-                    >
-                      +{number(more)} more
-                    </div>
+                        ✕
+                      </button>
+                    </form>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              </div>
+            ))}
+          </div>
+        )}
     </div>
   );
 }
 
-/** Two-column wrapper for the FinancialPicture + WhyThisScore narrative row. */
+/** Two-column wrapper for the financial + narrative rows. */
 export function NarrativeRow(props: { children: ComponentChildren }) {
   return (
     <div

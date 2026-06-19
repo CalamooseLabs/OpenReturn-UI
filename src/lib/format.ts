@@ -16,6 +16,19 @@ export function number(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+/** Compact "$18.4M" / "$920K" money for big KPI figures and tight tables. */
+export function moneyCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || isNaN(value)) return "—";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) {
+    return `${sign}$${(abs / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}$${Math.round(abs / 1_000)}K`;
+  return money(value);
+}
+
 /** A 0–1 score as a percent string, e.g. 0.689 -> "68.9%". */
 export function scorePct(value: number | null | undefined): string {
   if (value === null || value === undefined || isNaN(value)) return "—";

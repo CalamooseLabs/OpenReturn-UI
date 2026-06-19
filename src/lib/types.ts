@@ -49,6 +49,8 @@ export interface OrgSummary {
   main_email?: string | null;
   address?: Address | null;
   mailing_address?: Address | null;
+  /** In the shared (team-wide) portfolio — distinct from the per-user follow. */
+  in_portfolio?: boolean;
 }
 
 export interface FilingLink {
@@ -70,6 +72,83 @@ export interface Filing {
 
 export interface OrgFull extends OrgSummary {
   filings: Filing[];
+  /** Latest filed mission / activity description, or null. (on /full only) */
+  mission?: string | null;
+}
+
+/** One officer/director/trustee from the org's latest 990 (Part VII). */
+export interface Personnel {
+  name?: string | null;
+  title?: string | null;
+  filing_year?: number | null;
+  is_officer?: boolean;
+  is_director_trustee?: boolean;
+  is_key_employee?: boolean;
+  is_highest_comp?: boolean;
+  is_former?: boolean;
+  avg_hours_org?: number | null;
+  reportable_comp_org?: number | null;
+  reportable_comp_related?: number | null;
+  other_comp?: number | null;
+  resolved_party_id?: number | null;
+}
+
+/** A shared team note / update on an org. */
+export interface OrgNote {
+  note_id: number;
+  body: string;
+  author_user_id?: number | null;
+  author_label?: string | null;
+  created_at: string;
+}
+
+/** A hand-entered gift the team gave to an org. */
+export interface Gift {
+  gift_id: number;
+  amount: number;
+  fiscal_year?: number | null;
+  gift_date?: string | null;
+  purpose?: string | null;
+  created_by_user_id?: number | null;
+  created_by_label?: string | null;
+  created_at: string;
+}
+
+export interface GivingResponse {
+  ein: string;
+  gifts: Gift[];
+  summary: {
+    gift_count: number;
+    total_amount: number;
+    by_year: { year: number; amount: number }[];
+  };
+}
+
+/** A free-form note scoped to one (org, model, year). */
+export interface ModelYearNote {
+  note_id: number;
+  body: string;
+  author_user_id?: number | null;
+  author_label?: string | null;
+  created_at: string;
+}
+
+/** A custom data field scoped to one (org, model, year). */
+export interface ModelYearField {
+  field_id: number;
+  label: string;
+  value?: string | null;
+  created_by_user_id?: number | null;
+  created_by_label?: string | null;
+  created_at: string;
+}
+
+export interface ModelDataResponse {
+  ein: string;
+  model_version: string;
+  fiscal_year: number;
+  notes: ModelYearNote[];
+  fields: ModelYearField[];
 }
 
 export interface OrgListResponse {
@@ -185,6 +264,16 @@ export interface Sector {
   code: string;
   name: string;
   parent_code?: string | null;
+}
+
+/** A canonical financial concept (its code is the scoring key). The `label` is
+ * the full human name; `category` buckets it (revenue/expense/balance). */
+export interface Concept {
+  code: string;
+  label: string;
+  category?: string | null;
+  unit?: string | null;
+  default_xml_path?: string | null;
 }
 
 export interface Role {

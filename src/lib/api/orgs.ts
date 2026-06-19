@@ -1,5 +1,11 @@
 import { ApiResource } from "./client.ts";
-import type { OrgFull, OrgListResponse, OrgSummary, Sector } from "../types.ts";
+import type {
+  OrgFull,
+  OrgListResponse,
+  OrgSummary,
+  Personnel,
+  Sector,
+} from "../types.ts";
 
 export interface OrgSearchParams {
   q?: string;
@@ -86,6 +92,25 @@ export class OrgsApi extends ApiResource {
     return this.get<GrantsResponse>("/organizations/grants", {
       ein,
       direction,
+    });
+  }
+  personnel(ein: string) {
+    return this.get<
+      {
+        ein: string;
+        year: number | null;
+        years: number[];
+        personnel: Personnel[];
+      }
+    >(
+      "/organizations/personnel",
+      { ein },
+    );
+  }
+  portfolio(ein: string, inPortfolio: boolean) {
+    return this.post<OrgSummary>("/organizations/portfolio", {
+      ein,
+      in_portfolio: inPortfolio,
     });
   }
   create(body: Record<string, unknown>) {

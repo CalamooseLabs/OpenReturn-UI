@@ -1,5 +1,5 @@
 import { ApiResource } from "./client.ts";
-import type { CodeNameDesc, FinancialFact } from "../types.ts";
+import type { CodeNameDesc, Concept, FinancialFact } from "../types.ts";
 
 /** One organization with unresolved financial-fact conflicts. */
 export interface ConflictOrg {
@@ -42,7 +42,7 @@ export class FinancialsApi extends ApiResource {
     );
   }
   concepts() {
-    return this.get<{ concepts: CodeNameDesc[] }>("/financials/concepts");
+    return this.get<{ concepts: Concept[] }>("/financials/concepts");
   }
   setCanonical(body: {
     ein: string;

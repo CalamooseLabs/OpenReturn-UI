@@ -16,7 +16,7 @@ import {
 } from "../components/molecules.tsx";
 import { formatEin, money, normalizeEin, titleCase } from "../lib/format.ts";
 import { can } from "../lib/auth.ts";
-import type { CodeNameDesc, FinancialFact } from "../lib/types.ts";
+import type { Concept, FinancialFact } from "../lib/types.ts";
 
 interface SourceInfo {
   code: string;
@@ -32,7 +32,7 @@ interface Data {
   facts: FinancialFact[];
   conflicts: FinancialFact[];
   sources: SourceInfo[];
-  concepts: CodeNameDesc[];
+  concepts: Concept[];
   loadError?: string;
   msg?: string;
   err?: string;
@@ -347,7 +347,7 @@ export default define.page<typeof handler>((ctx) => {
                       {data.concepts.map((c) => (
                         <div class="field">
                           <label class="label" for={`value_${c.code}`}>
-                            {c.name ?? titleCase(c.code)}{" "}
+                            {c.label || titleCase(c.code)}{" "}
                             <span class="mono text-xs text-faint">
                               {c.code}
                             </span>
